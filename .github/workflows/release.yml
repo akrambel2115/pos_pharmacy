@@ -36,30 +36,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Prepare signing credentials
-        shell: pwsh
-        run: |
-          $rawKey = @"
-${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-"@.Trim().Trim('"')
-          $rawPass = @"
-${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-"@.Trim().Trim('"')
-
-          $keyFile = Join-Path $env:RUNNER_TEMP "tauri-signing.key"
-          [System.IO.File]::WriteAllText($keyFile, $rawKey)
-
-          Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PATH=$keyFile"
-          Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY=$rawKey"
-          Add-Content -Path $env:GITHUB_ENV -Value "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=$rawPass"
-
       - name: Build Tauri App & Publish Release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PATH }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ env.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'Pharmacy POS ${{ github.ref_name }}'
