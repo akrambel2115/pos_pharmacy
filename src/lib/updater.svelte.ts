@@ -47,11 +47,20 @@ class UpdaterStore {
         }
       }
     } catch (err: any) {
-      console.error('[Updater] Check failed:', err);
-      this.status = 'error';
-      this.errorMessage = err?.message || String(err);
-      if (!silent) {
-        this.showModal = true;
+      console.warn('[Updater] Check result:', err);
+      const msg = err?.message || String(err);
+      // When no release has been published yet on GitHub, the endpoint returns 404
+      if (msg.includes('Could not fetch a valid release JSON') || msg.includes('404')) {
+        this.status = 'up-to-date';
+        if (!silent) {
+          this.showModal = true;
+        }
+      } else {
+        this.status = 'error';
+        this.errorMessage = msg;
+        if (!silent) {
+          this.showModal = true;
+        }
       }
     }
   }
