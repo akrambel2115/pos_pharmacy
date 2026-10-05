@@ -536,6 +536,16 @@
       } else if (sortColumn === "expiration") {
         valA = a.nearest_expiry_date || "9999-12-31";
         valB = b.nearest_expiry_date || "9999-12-31";
+      } else if (sortColumn === "status") {
+        const getDrugStatusWeight = (d: any) => {
+          if (!d.nearest_expiry_date) return 2;
+          const dDays = getDaysUntilExpiry(d.nearest_expiry_date);
+          if (dDays <= 0) return 0;
+          if (dDays <= expiryThresholdDays) return 1;
+          return 2;
+        };
+        valA = getDrugStatusWeight(a);
+        valB = getDrugStatusWeight(b);
       }
 
       if (valA < valB) return sortDirection === "asc" ? -1 : 1;
@@ -915,6 +925,9 @@
             <th onclick={() => toggleSort("mg")} class="sortable-th">
               {t("mg")} (%){getSortIndicator("mg")}
             </th>
+            <th onclick={() => toggleSort("status")} class="sortable-th">
+              {t("status")}{getSortIndicator("status")}
+            </th>
             <th>{t("actions")}</th>
           </tr>
         </thead>
@@ -997,6 +1010,9 @@
                   placeholder="Auto" 
                   bind:value={inlineMg} 
                 />
+              </td>
+              <td>
+                <span class="status-ok">{t("statusNormal")}</span>
               </td>
               <td>
                 <div class="patient-actions-wrapper">
@@ -1088,6 +1104,29 @@
               <td>{drug.tva ?? 9}%</td>
               <td>{drug.mg !== undefined && drug.mg !== null ? drug.mg.toFixed(1) + '%' : '-'}</td>
               <td>
+                {#if (drug.batches_count ?? 1) <= 1}
+                  {#if drug.nearest_expiry_date}
+                    {#if days <= 0}
+                      <span class="badge-expired">{t("expired")}</span>
+                    {:else if days <= expiryThresholdDays}
+                      <span class="badge-warning">{t("expiresIn", { days })}</span>
+                    {:else}
+                      <span class="status-ok">{t("statusNormal")}</span>
+                    {/if}
+                  {:else}
+                    <span class="status-ok">{t("statusNormal")}</span>
+                  {/if}
+                {:else}
+                  {#if days <= 0}
+                    <span class="badge-expired" title="Au moins un lot est expiré">{t("expired")}</span>
+                  {:else if days <= expiryThresholdDays}
+                    <span class="badge-warning" title="Au moins un lot expire bientôt">{t("expiresIn", { days })}</span>
+                  {:else}
+                    <span class="status-ok">{t("statusNormal")}</span>
+                  {/if}
+                {/if}
+              </td>
+              <td>
                 <div class="patient-actions-wrapper">
                   <!-- View batches -->
                   <button onclick={() => openViewBatches(drug)} class="patient-action-btn" title="Voir tous les stocks/lots">
@@ -1111,7 +1150,7 @@
 
             {#if expandedDrugIds.has(drug.id)}
               <tr class="sub-batches-row">
-                <td colspan={isPrintMode ? 11 : 10} class="sub-batches-td">
+                <td colspan={isPrintMode ? 12 : 11} class="sub-batches-td">
                   <div class="sub-batches-container">
                     <div class="sub-batches-header">
                       <span class="sub-batches-title">Stocks de <strong>{drug.name}</strong> (Code-barres : <code>{drug.barcode}</code>)</span>
@@ -1193,6 +1232,7 @@
               {#if isPrintMode}
                 <td>&nbsp;</td>
               {/if}
+              <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
