@@ -2069,6 +2069,12 @@ pub fn str_similarity(a: &str, b: &str) -> f64 {
     (1.0 - (dist as f64 / max_len)).max(0.0)
 }
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 fn resolve_python_path() -> String {
     let specific_python = std::path::Path::new("C:\\Python313\\python.exe");
     if specific_python.exists() {
@@ -2095,6 +2101,58 @@ fn resolve_engine_script() -> Result<std::path::PathBuf, String> {
     Err("invoice_extractor.py engine script not found".into())
 }
 
+fn resolve_extractor_command() -> Result<Command, String> {
+    // 1. Production bundle: check sidecar next to current running executable
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            let candidates = [
+                exe_dir.join("invoice_extractor.exe"),
+                exe_dir.join("invoice_extractor-x86_64-pc-windows-msvc.exe"),
+                exe_dir.join("bin").join("invoice_extractor.exe"),
+                exe_dir.join("bin").join("invoice_extractor-x86_64-pc-windows-msvc.exe"),
+            ];
+            for candidate in candidates {
+                if candidate.exists() {
+                    let mut cmd = Command::new(candidate);
+                    #[cfg(windows)]
+                    cmd.creation_flags(CREATE_NO_WINDOW);
+                    return Ok(cmd);
+                }
+            }
+        }
+    }
+
+    // 2. Development sidecar location in src-tauri/bin
+    if let Ok(curr) = std::env::current_dir() {
+        let candidates = [
+            curr.join("src-tauri").join("bin").join("invoice_extractor-x86_64-pc-windows-msvc.exe"),
+            curr.join("src-tauri").join("bin").join("invoice_extractor.exe"),
+            curr.join("bin").join("invoice_extractor-x86_64-pc-windows-msvc.exe"),
+            curr.join("bin").join("invoice_extractor.exe"),
+        ];
+        for candidate in candidates {
+            if candidate.exists() {
+                let mut cmd = Command::new(candidate);
+                #[cfg(windows)]
+                cmd.creation_flags(CREATE_NO_WINDOW);
+                return Ok(cmd);
+            }
+        }
+    }
+
+    // 3. Fallback to Python script (for local development when binary is not built)
+    if let Ok(script_path) = resolve_engine_script() {
+        let python_exe = resolve_python_path();
+        let mut cmd = Command::new(python_exe);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.arg(script_path);
+        return Ok(cmd);
+    }
+
+    Err("Neither the standalone invoice_extractor binary nor the Python script was found.".into())
+}
+
 #[tauri::command]
 pub async fn pick_invoice_pdf_file() -> Result<Option<String>, String> {
     let file = rfd::AsyncFileDialog::new()
@@ -2111,9 +2169,6 @@ pub fn scan_and_extract_invoice(
     pdf_path: String,
     app_handle: tauri::AppHandle,
 ) -> Result<ExtractedInvoicePayload, String> {
-    let python_exe = resolve_python_path();
-    let script_path = resolve_engine_script()?;
-
     let app_dir = app_handle
         .path()
         .app_data_dir()
@@ -2121,12 +2176,12 @@ pub fn scan_and_extract_invoice(
     let cache_dir = app_dir.join("invoice_render_cache");
     let _ = std::fs::create_dir_all(&cache_dir);
 
-    let output = Command::new(python_exe)
-        .arg(&script_path)
+    let mut cmd = resolve_extractor_command()?;
+    let output = cmd
         .arg(&pdf_path)
         .arg(&cache_dir)
         .output()
-        .map_err(|e| format!("Failed to execute python invoice extractor: {}", e))?;
+        .map_err(|e| format!("Failed to execute invoice extractor: {}", e))?;
 
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -2205,11 +2260,8 @@ pub fn test_gemini_api_key(
         return Err("Veuillez saisir votre clé API.".into());
     }
 
-    let python_exe = resolve_python_path();
-    let script_path = resolve_engine_script()?;
-
-    let output = Command::new(python_exe)
-        .arg(&script_path)
+    let mut cmd = resolve_extractor_command()?;
+    let output = cmd
         .arg("--test-key")
         .arg(&final_key)
         .output()
@@ -2254,9 +2306,6 @@ pub fn extract_invoice_with_gemini(
         return Err("Clé API non configurée. Veuillez renseigner votre clé API dans les Paramètres.".into());
     }
 
-    let python_exe = resolve_python_path();
-    let script_path = resolve_engine_script()?;
-
     let app_dir = app_handle
         .path()
         .app_data_dir()
@@ -2264,8 +2313,8 @@ pub fn extract_invoice_with_gemini(
     let cache_dir = app_dir.join("invoice_render_cache");
     let _ = std::fs::create_dir_all(&cache_dir);
 
-    let output = Command::new(python_exe)
-        .arg(&script_path)
+    let mut cmd = resolve_extractor_command()?;
+    let output = cmd
         .arg(&pdf_path)
         .arg(&cache_dir)
         .arg("--gemini-key")

@@ -40,6 +40,8 @@ src/public/invoices/*.pdf
 # Rust & Tauri artifacts
 src-tauri/target/
 src-tauri/gen/schemas/
+src-tauri/bin/
+src-tauri/build_pyinstaller/
 target/
 
 # Tauri updater private & public signing keys
