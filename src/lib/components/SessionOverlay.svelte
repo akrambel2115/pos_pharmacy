@@ -209,16 +209,22 @@
     align-items: center;
     justify-content: center;
     z-index: 2000;
+    padding: 1rem;
+    overflow-y: auto;
+    box-sizing: border-box;
   }
 
   .card {
     background-color: var(--color-bg-card);
     border: 3px solid var(--color-border);
     border-radius: 16px;
-    padding: 2.5rem;
+    padding: clamp(1.25rem, 3vw, 2.5rem);
     box-shadow: 0 10px 30px var(--color-shadow);
     width: 90%;
     max-width: 500px;
+    max-height: 92vh;
+    overflow-y: auto;
+    box-sizing: border-box;
   }
 
   .select-card {
@@ -230,8 +236,8 @@
   }
 
   .title {
-    font-size: 1.8rem;
-    margin-bottom: 1.5rem;
+    font-size: clamp(1.3rem, 2.2vw, 1.8rem);
+    margin-bottom: clamp(0.75rem, 1.5vh, 1.5rem);
     color: var(--color-text-dark);
   }
 
@@ -240,11 +246,11 @@
   }
 
   .mb-2 {
-    margin-bottom: 2rem;
+    margin-bottom: clamp(1rem, 2vh, 2rem);
   }
 
   .mt-1 {
-    margin-top: 1rem;
+    margin-top: 0.75rem;
   }
 
   .w-100 {
@@ -259,13 +265,19 @@
 
   .form-container label {
     font-weight: bold;
-    font-size: 1.1rem;
+    font-size: clamp(0.95rem, 1.1vw, 1.1rem);
   }
 
   .btn-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+    gap: clamp(0.75rem, 1.5vw, 1.5rem);
+  }
+
+  @media (max-width: 460px) {
+    .btn-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
   .btn-pos-huge {
@@ -273,21 +285,21 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 2rem;
+    padding: clamp(1rem, 2vw, 2rem);
     border: 3px solid var(--color-border);
     border-radius: 16px;
     background-color: var(--color-bg-card);
     cursor: pointer;
     transition: all 0.2s ease-in-out;
-    height: 200px;
+    height: clamp(130px, 18vh, 200px);
     box-shadow: 0 6px 12px var(--color-shadow);
   }
 
   .session-icon-img {
-    width: 80px;
-    height: 80px;
+    width: clamp(48px, 7vh, 80px);
+    height: clamp(48px, 7vh, 80px);
     object-fit: contain;
-    margin-bottom: 1rem;
+    margin-bottom: clamp(0.5rem, 1vh, 1rem);
   }
 
   .btn-pos-huge:hover {
@@ -344,34 +356,34 @@
   }
 
   .pin-display {
-    font-size: 2rem;
+    font-size: clamp(1.4rem, 2.5vw, 2rem);
     letter-spacing: 0.5rem;
-    height: 60px;
-    margin-bottom: 1rem;
+    height: clamp(44px, 6vh, 60px);
+    margin-bottom: 0.75rem;
   }
 
   .error-banner {
     background-color: #ffebe6;
     border: 2px solid var(--color-danger);
     color: var(--color-danger);
-    padding: 0.75rem;
+    padding: 0.5rem 0.75rem;
     border-radius: 8px;
     text-align: center;
     font-weight: bold;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
   }
 
   /* Numpad layout */
   .numpad {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
-    margin-top: 1rem;
+    gap: clamp(0.4rem, 1vh, 0.75rem);
+    margin-top: 0.5rem;
   }
 
   .numpad-btn {
-    height: 70px;
-    font-size: 1.6rem;
+    height: clamp(48px, 6.5vh, 70px);
+    font-size: clamp(1.2rem, 1.8vw, 1.6rem);
     font-weight: bold;
     border-radius: 12px;
     border: 2px solid var(--color-border);

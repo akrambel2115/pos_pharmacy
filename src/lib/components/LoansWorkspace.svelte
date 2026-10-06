@@ -211,33 +211,38 @@
 
   .search-filter-row {
     display: flex;
-    gap: 1rem;
+    gap: 0.75rem;
     width: 100%;
     max-width: 650px;
+    flex-wrap: wrap;
   }
 
   .search-input {
     flex: 1;
+    min-width: 200px;
+    font-size: clamp(0.95rem, 1.1vw, 1.15rem);
   }
 
   .table-scroll-container {
     flex: 1;
-    overflow-y: auto;
+    overflow: auto;
     width: 100%;
+    min-height: 0;
   }
 
   .mt-1 {
-    margin-top: 1rem;
+    margin-top: 0.5rem;
   }
 
   .pos-table {
     width: 100%;
+    min-width: 820px;
     border-collapse: collapse;
-    font-size: 1.1rem;
+    font-size: clamp(0.9rem, 1.05vw, 1.1rem);
   }
 
   .pos-table th, .pos-table td {
-    padding: 0.75rem 1rem;
+    padding: clamp(0.45rem, 0.8vh, 0.75rem) clamp(0.5rem, 0.8vw, 1rem);
     border-bottom: var(--border-width) solid var(--color-border);
     text-align: left;
     vertical-align: middle;

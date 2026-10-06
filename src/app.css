@@ -45,6 +45,18 @@ body {
   user-select: none;            /* Prevent accidental selection drag */
 }
 
+@media (max-width: 1200px), (max-height: 800px) {
+  body {
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 900px), (max-height: 650px) {
+  body {
+    font-size: 0.92rem;
+  }
+}
+
 h1, h2, h3, h4 {
   font-weight: 700;
   color: var(--color-text-dark);
@@ -121,8 +133,8 @@ h1, h2, h3, h4 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.8rem 1.8rem;
-  font-size: 1.2rem;
+  padding: clamp(0.5rem, 1vh, 0.8rem) clamp(1rem, 2vw, 1.8rem);
+  font-size: clamp(1rem, 1.1vw, 1.2rem);
   font-weight: bold;
   border-radius: var(--border-radius);
   border: var(--border-width) solid transparent;
@@ -166,8 +178,8 @@ h1, h2, h3, h4 {
 /* Bold inputs for quick visibility */
 .input-pos {
   width: 100%;
-  padding: 0.85rem 1rem;
-  font-size: 1.2rem;
+  padding: clamp(0.6rem, 1.2vh, 0.85rem) clamp(0.75rem, 1.2vw, 1rem);
+  font-size: clamp(1rem, 1.1vw, 1.2rem);
   font-weight: 600;
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--border-radius);
@@ -250,16 +262,22 @@ h1, h2, h3, h4 {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  padding: 1rem;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 
 .modal-content {
   background-color: var(--color-bg-card);
-  padding: 2.5rem;
+  padding: clamp(1.25rem, 2.5vw, 2.5rem);
   border-radius: var(--border-radius);
   border: var(--border-width) solid var(--color-border);
   max-width: 600px;
   width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
   box-shadow: 0 10px 25px rgba(0,0,0,0.2);
+  box-sizing: border-box;
 }
 
 /* Backup Alert Banner Styles */

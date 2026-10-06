@@ -200,42 +200,54 @@
   .app-header {
     background-color: var(--color-bg-card);
     border-bottom: var(--border-width) solid var(--color-border);
-    height: 80px;
+    height: clamp(60px, 8.5vh, 80px);
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0 2rem;
+    padding: 0 clamp(0.75rem, 2vw, 2rem);
     box-shadow: 0 2px 4px var(--color-shadow);
+    gap: clamp(0.5rem, 1.5vw, 1.5rem);
   }
 
   .header-logo-section {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: clamp(0.4rem, 1vw, 0.75rem);
+    flex-shrink: 0;
   }
 
   .app-icon svg {
-    width: 36px;
-    height: 36px;
+    width: clamp(26px, 3.5vw, 36px);
+    height: clamp(26px, 3.5vw, 36px);
     color: var(--color-primary);
   }
 
   .app-title {
-    font-size: 1.6rem;
+    font-size: clamp(1.1rem, 1.8vw, 1.6rem);
     font-weight: 850;
     color: var(--color-text-dark);
+    white-space: nowrap;
   }
 
   .header-time-section {
-    font-size: 1.2rem;
+    font-size: clamp(0.9rem, 1.2vw, 1.2rem);
     font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 1024px) {
+    .header-time-section {
+      display: none;
+    }
   }
 
   .header-controls-section {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
+    gap: clamp(0.5rem, 1.2vw, 1.5rem);
+    flex-shrink: 0;
   }
 
   .lang-selector {
@@ -262,6 +274,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-shrink: 0;
   }
 
   .badge {
@@ -269,15 +282,21 @@
     flex-direction: column;
     align-items: center;
     gap: 0.15rem;
-    padding: 0.25rem 0.75rem;
+    padding: 0.2rem clamp(0.35rem, 0.8vw, 0.75rem);
     border-radius: 8px;
     font-weight: bold;
-    font-size: 0.95rem;
+    font-size: clamp(0.8rem, 0.9vw, 0.95rem);
+  }
+
+  @media (max-width: 768px) {
+    .badge span {
+      display: none;
+    }
   }
 
   .role-icon-img {
-    width: 30px;
-    height: 30px;
+    width: clamp(24px, 3vw, 30px);
+    height: clamp(24px, 3vw, 30px);
     object-fit: contain;
   }
 
@@ -294,8 +313,8 @@
   }
 
   .lock-icon-img {
-    width: 44px;
-    height: 44px;
+    width: clamp(32px, 3.8vw, 44px);
+    height: clamp(32px, 3.8vw, 44px);
     object-fit: contain;
   }
 

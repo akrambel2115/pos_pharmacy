@@ -269,29 +269,43 @@
   .drug-modal {
     max-width: 600px;
     width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: clamp(1rem, 2.5vw, 2.2rem);
+    box-sizing: border-box;
   }
 
   .modal-form {
     display: flex;
     flex-direction: column;
-    gap: 1.25rem;
+    gap: clamp(0.75rem, 1.5vh, 1.25rem);
   }
 
   .form-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1.25rem;
+    gap: clamp(0.6rem, 1.2vw, 1.25rem);
+  }
+
+  @media (max-width: 500px) {
+    .form-grid {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+    .col-span-2 {
+      grid-column: span 1 !important;
+    }
   }
 
   .form-group {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.35rem;
   }
 
   .form-group label {
     font-weight: 700;
-    font-size: 1rem;
+    font-size: clamp(0.9rem, 1vw, 1rem);
   }
 
   .col-span-2 {
@@ -302,20 +316,22 @@
     background-color: #ffebe6;
     border: 2px solid var(--color-danger);
     color: var(--color-danger);
-    padding: 0.75rem;
+    padding: 0.6rem 0.75rem;
     border-radius: 8px;
     text-align: center;
     font-weight: bold;
+    font-size: 0.95rem;
   }
 
   .modal-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 1rem;
+    gap: clamp(0.5rem, 1vw, 1rem);
+    flex-wrap: wrap;
   }
 
   .mt-2 {
-    margin-top: 1.5rem;
+    margin-top: clamp(0.75rem, 1.5vh, 1.5rem);
   }
 
   /* Adjust action layout for RTL */

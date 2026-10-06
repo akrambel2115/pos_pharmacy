@@ -595,20 +595,25 @@
   .settings-page {
     padding: 0;
     background-color: transparent;
+    height: 100%;
+    overflow-y: auto;
+    box-sizing: border-box;
   }
 
   .settings-content {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 1.5rem;
-    margin-top: 1.5rem;
+    gap: clamp(1rem, 1.5vw, 1.5rem);
+    margin-top: 0.5rem;
+    padding-bottom: 2rem;
+    max-width: 1200px;
   }
 
   .card {
     background-color: var(--color-bg-card);
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--border-radius);
-    padding: 2rem;
+    padding: clamp(1rem, 1.8vw, 2rem);
     box-shadow: 0 4px 6px var(--color-shadow);
   }
 

@@ -1151,17 +1151,17 @@
     flex: 1;
     gap: 1.25rem;
     overflow: hidden;
+    min-height: 0;
   }
 
   .preview-panel {
-    flex: 0 0 24%;
-    min-width: 220px;
-    max-width: 330px;
+    flex: 0 0 clamp(200px, 24vw, 330px);
     display: flex;
     flex-direction: column;
     background: #2d3748;
     border-radius: 8px;
     overflow: hidden;
+    min-height: 0;
   }
 
   .preview-controls {
@@ -1172,6 +1172,8 @@
     background: #1a202c;
     color: #fff;
     font-size: 0.9rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   .zoom-buttons button, .page-nav-buttons button {
@@ -1208,16 +1210,20 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
+    min-width: 0;
   }
 
   .meta-row {
     display: flex;
-    gap: 1rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
     margin-bottom: 0.75rem;
   }
 
   .meta-field {
     flex: 1;
+    min-width: 130px;
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
@@ -1242,6 +1248,7 @@
     border-radius: 6px;
     font-size: 0.95rem;
     margin-bottom: 0.75rem;
+    overflow-x: auto;
   }
 
   .summary-details {
@@ -1249,6 +1256,8 @@
     justify-content: space-around;
     width: 100%;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
   }
 
   .summary-ok {
@@ -1261,6 +1270,16 @@
     background: #fff0b3;
     border: 1px solid #ffab00;
     color: #8f4d00;
+  }
+
+  @media (max-width: 900px) {
+    .split-container {
+      flex-direction: column;
+    }
+    .preview-panel {
+      flex: 0 0 200px;
+      max-width: 100%;
+    }
   }
 
   .table-wrapper {

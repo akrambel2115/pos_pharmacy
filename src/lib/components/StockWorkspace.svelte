@@ -1227,7 +1227,7 @@
               </tr>
             {/if}
           {/each}
-          {#each Array(Math.max(0, 10 - paginatedDrugs.length)) as _}
+          {#each Array(Math.max(0, 8 - paginatedDrugs.length)) as _}
             <tr class="placeholder-row">
               {#if isPrintMode}
                 <td>&nbsp;</td>
@@ -1893,10 +1893,11 @@
   .stock-workspace {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: clamp(0.5rem, 1vh, 1rem);
     width: 100%;
     height: 100%;
     box-sizing: border-box;
+    min-height: 0;
   }
 
   .stock-header-actions {
@@ -1905,13 +1906,16 @@
     align-items: center;
     width: 100%;
     box-sizing: border-box;
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
   .search-filter-row {
     display: flex;
-    gap: 1rem;
+    gap: clamp(0.5rem, 1vw, 1rem);
     flex: 1;
     max-width: 600px;
+    align-items: center;
   }
 
   .search-input {
@@ -1934,8 +1938,8 @@
   }
 
   .plus-icon-img {
-    width: 32px;
-    height: 32px;
+    width: clamp(26px, 3vw, 32px);
+    height: clamp(26px, 3vw, 32px);
     object-fit: contain;
   }
 
@@ -1944,23 +1948,26 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
   }
 
   .table-scroll-container {
     flex: 1;
-    overflow-y: auto;
+    overflow: auto;
     width: 100%;
+    min-height: 0;
   }
 
   /* Table styling */
   .pos-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 1.1rem;
+    font-size: clamp(0.85rem, 0.95vw, 1.05rem);
+    min-width: 960px;
   }
 
   .pos-table th, .pos-table td {
-    padding: 0.75rem 1rem;
+    padding: clamp(0.35rem, 0.7vh, 0.65rem) clamp(0.4rem, 0.8vw, 0.75rem);
     border-bottom: var(--border-width) solid var(--color-border);
     text-align: left;
     vertical-align: middle;
@@ -1993,34 +2000,40 @@
   }
 
   .placeholder-row td {
-    height: 53px;
+    height: clamp(32px, 3.8vh, 48px);
   }
 
   .status-ok {
     background-color: var(--color-primary);
     color: #ffffff;
-    padding: 0.2rem 0.6rem;
+    padding: 0.15rem 0.5rem;
     border-radius: 4px;
     font-weight: bold;
     display: inline-block;
+    font-size: 0.85rem;
+    white-space: nowrap;
   }
  
   .badge-expired {
     background-color: var(--color-danger);
     color: #ffffff;
-    padding: 0.2rem 0.6rem;
+    padding: 0.15rem 0.5rem;
     border-radius: 4px;
     font-weight: bold;
     display: inline-block;
+    font-size: 0.85rem;
+    white-space: nowrap;
   }
  
   .badge-warning {
     background-color: #f59f00;
     color: #ffffff;
-    padding: 0.2rem 0.6rem;
+    padding: 0.15rem 0.5rem;
     border-radius: 4px;
     font-weight: bold;
     display: inline-block;
+    font-size: 0.85rem;
+    white-space: nowrap;
   }
 
   .empty-text {
@@ -2031,14 +2044,15 @@
   /* Actions wrapper */
   .patient-actions-wrapper {
     display: flex;
-    gap: 0.5rem;
+    gap: 0.35rem;
     align-items: center;
+    flex-shrink: 0;
   }
 
   .patient-action-btn {
     background: transparent;
     border: none;
-    padding: 0.2rem;
+    padding: 0.15rem;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -2051,8 +2065,8 @@
   }
 
   .patient-action-icon {
-    width: 24px;
-    height: 24px;
+    width: clamp(20px, 2.2vw, 24px);
+    height: clamp(20px, 2.2vw, 24px);
     object-fit: contain;
   }
 
@@ -2061,16 +2075,17 @@
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 1.5rem;
-    margin-top: 1rem;
+    gap: clamp(0.75rem, 1.5vw, 1.5rem);
+    margin-top: clamp(0.4rem, 0.8vh, 0.85rem);
+    flex-shrink: 0;
   }
 
   .btn-pos-action {
     background-color: var(--color-bg-app);
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--border-radius);
-    padding: 0.5rem 1rem;
-    font-size: 1.1rem;
+    padding: clamp(0.35rem, 0.7vh, 0.5rem) clamp(0.6rem, 1.2vw, 1rem);
+    font-size: clamp(0.95rem, 1.1vw, 1.1rem);
     font-weight: bold;
     cursor: pointer;
   }
@@ -2081,7 +2096,7 @@
   }
 
   .page-indicator {
-    font-size: 1.15rem;
+    font-size: clamp(0.95rem, 1.1vw, 1.15rem);
     font-weight: bold;
   }
 
@@ -2092,6 +2107,7 @@
     align-items: center;
     border-bottom: 2px solid var(--color-bg-app);
     padding-bottom: 0.75rem;
+    gap: 0.5rem;
   }
 
   .btn-close-modal {
@@ -2113,6 +2129,10 @@
   .max-w-4xl {
     max-width: 960px;
     width: 92%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: clamp(1rem, 2vw, 1.5rem);
+    box-sizing: border-box;
   }
 
   .modal-table-scroll {
@@ -2121,61 +2141,73 @@
   }
 
   .max-w-md {
-    max-width: 450px;
-    width: 90%;
+    max-width: 480px;
+    width: 92%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: clamp(1rem, 2vw, 1.5rem);
+    box-sizing: border-box;
   }
 
   .intake-form {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: clamp(0.6rem, 1.2vh, 1rem);
   }
 
   .form-group {
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
+    gap: 0.35rem;
   }
 
   .form-group label {
     font-weight: bold;
+    font-size: clamp(0.85rem, 0.95vw, 0.95rem);
   }
 
   .form-actions {
     display: flex;
     justify-content: flex-end;
     gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
   .error-banner {
     background-color: rgba(220, 53, 69, 0.15);
     color: var(--color-danger);
-    padding: 0.75rem;
+    padding: 0.6rem 0.75rem;
     border-radius: var(--border-radius);
     text-align: center;
     font-weight: bold;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
     width: 100%;
     box-sizing: border-box;
   }
 
   .table-input {
     width: 100%;
-    height: 38px;
-    padding: 0.25rem 0.5rem;
-    font-size: 0.95rem;
+    height: clamp(30px, 3.8vh, 36px);
+    padding: 0.2rem clamp(0.25rem, 0.5vw, 0.5rem);
+    font-size: clamp(0.82rem, 0.9vw, 0.95rem);
     box-sizing: border-box;
   }
 
   .inline-edit-row td {
-    padding: 0.4rem 0.5rem;
+    padding: 0.35rem 0.4rem;
     vertical-align: middle;
   }
 
   .form-row-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 0.75rem;
+    gap: clamp(0.5rem, 1vw, 0.75rem);
+  }
+
+  @media (max-width: 440px) {
+    .form-row-2 {
+      grid-template-columns: 1fr;
+    }
   }
 
   .drug-title-wrapper {
@@ -2183,6 +2215,7 @@
     align-items: center;
     gap: 0.5rem;
     width: 100%;
+    flex-wrap: wrap;
   }
 
   .btn-expand-batches {
@@ -2227,15 +2260,18 @@
   }
 
   .sub-batches-td {
-    padding: 0.5rem 1rem 1rem 2.5rem !important;
+    padding: clamp(0.4rem, 0.8vh, 0.75rem) clamp(0.5rem, 1vw, 1.25rem) !important;
   }
 
   .sub-batches-container {
     background-color: var(--color-bg-card);
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius);
-    padding: 0.75rem 1rem;
+    padding: clamp(0.5rem, 1vw, 0.75rem) clamp(0.6rem, 1.2vw, 1rem);
     box-shadow: 0 2px 4px var(--color-shadow);
+    overflow-x: auto;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .sub-batches-header {
@@ -2243,10 +2279,12 @@
     align-items: center;
     justify-content: space-between;
     margin-bottom: 0.5rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
   }
 
   .sub-batches-title {
-    font-size: 0.95rem;
+    font-size: clamp(0.85rem, 0.95vw, 0.95rem);
     font-weight: bold;
     color: var(--color-primary);
   }
@@ -2260,11 +2298,12 @@
   .sub-batches-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 0.95rem;
+    font-size: clamp(0.82rem, 0.9vw, 0.95rem);
+    min-width: 680px;
   }
 
   .sub-batches-table th, .sub-batches-table td {
-    padding: 0.4rem 0.6rem;
+    padding: clamp(0.25rem, 0.5vh, 0.4rem) clamp(0.35rem, 0.8vw, 0.6rem);
     border-bottom: 1px solid var(--color-border);
     text-align: left;
   }
@@ -2355,19 +2394,26 @@
   /* Invoice details modal */
   .invoice-details-modal {
     max-width: 900px;
-    width: 90%;
-    max-height: 85vh;
+    width: 92%;
+    max-height: 90vh;
     display: flex;
     flex-direction: column;
-    padding: 1.5rem;
+    overflow: hidden;
+    padding: clamp(1rem, 2vw, 1.5rem);
+    box-sizing: border-box;
   }
 
   .modal-table-wrap {
     flex: 1;
-    overflow-y: auto;
+    min-height: 0;
+    overflow: auto;
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    margin: 1rem 0;
+    margin: 0.75rem 0;
+  }
+
+  .modal-table-wrap table {
+    min-width: 640px;
   }
 
   .modal-actions-row {
@@ -2375,6 +2421,8 @@
     justify-content: flex-end;
     gap: 0.75rem;
     padding-top: 0.5rem;
+    flex-wrap: wrap;
+    flex-shrink: 0;
   }
 
   .action-btn-icon {
@@ -2382,7 +2430,6 @@
     height: 20px;
     object-fit: contain;
   }
-
 
   .btn-pos-action.btn-danger {
     background-color: var(--color-danger);
@@ -2417,8 +2464,8 @@
 
   .barcode-preview-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 1rem;
+    grid-template-columns: repeat(auto-fill, minmax(clamp(200px, 22vw, 260px), 1fr));
+    gap: clamp(0.5rem, 1vw, 1rem);
     width: 100%;
     box-sizing: border-box;
   }
@@ -2426,12 +2473,13 @@
   .barcode-card-item {
     border: 1.5px solid var(--color-border);
     border-radius: var(--border-radius);
-    padding: 0.75rem;
+    padding: clamp(0.5rem, 1vw, 0.75rem);
     background: #ffffff;
     display: flex;
     flex-direction: column;
     align-items: center;
     box-shadow: 0 2px 4px var(--color-shadow);
+    box-sizing: border-box;
   }
 
   .barcode-card-header {
@@ -2442,7 +2490,7 @@
 
   .label-drug-name {
     font-weight: 800;
-    font-size: 0.95rem;
+    font-size: clamp(0.85rem, 0.95vw, 0.95rem);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2476,7 +2524,7 @@
 
   .label-price {
     font-weight: 800;
-    font-size: 1rem;
+    font-size: clamp(0.9rem, 1vw, 1rem);
     color: #111827;
   }
 
@@ -2506,9 +2554,9 @@
 
   .pos-choice-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.25rem;
-    margin: 1.25rem 0;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: clamp(0.6rem, 1.2vw, 1.25rem);
+    margin: clamp(0.75rem, 1.5vh, 1.25rem) 0;
   }
 
   .btn-pos-choice {
@@ -2516,7 +2564,7 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 1.5rem 1rem;
+    padding: clamp(0.75rem, 1.5vw, 1.5rem) 0.75rem;
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--border-radius);
     background-color: var(--color-bg-card);
@@ -2524,10 +2572,10 @@
     cursor: pointer;
     transition: all 0.15s ease-in-out;
     box-shadow: 0 4px 6px var(--color-shadow);
-    gap: 0.65rem;
+    gap: 0.5rem;
     text-align: center;
     width: 100%;
-    min-height: 155px;
+    min-height: clamp(110px, 15vh, 155px);
     box-sizing: border-box;
   }
 
@@ -2549,19 +2597,19 @@
   }
 
   .btn-pos-choice-icon {
-    width: 48px;
-    height: 48px;
+    width: clamp(34px, 4.5vh, 48px);
+    height: clamp(34px, 4.5vh, 48px);
     object-fit: contain;
   }
 
   .btn-pos-choice-label {
-    font-size: 1.2rem;
+    font-size: clamp(1rem, 1.1vw, 1.2rem);
     font-weight: 700;
     color: var(--color-text-dark);
   }
 
   .btn-pos-choice-desc {
-    font-size: 0.95rem;
+    font-size: clamp(0.8rem, 0.9vw, 0.95rem);
     font-weight: 600;
     color: #42526e;
     line-height: 1.3;

@@ -74,7 +74,11 @@
 <style>
   .pin-modal {
     max-width: 400px;
-    padding: 2rem;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: clamp(1rem, 2vh, 2rem);
+    box-sizing: border-box;
   }
 
   .text-center {
@@ -82,7 +86,7 @@
   }
 
   .mt-1 {
-    margin-top: 1rem;
+    margin-top: 0.75rem;
   }
 
   .w-100 {
@@ -90,10 +94,10 @@
   }
 
   .pin-display {
-    font-size: 2rem;
+    font-size: clamp(1.4rem, 2.5vw, 2rem);
     letter-spacing: 0.5rem;
-    height: 60px;
-    margin-bottom: 1rem;
+    height: clamp(44px, 6vh, 60px);
+    margin-bottom: 0.75rem;
     text-align: center;
   }
 
@@ -101,23 +105,23 @@
     background-color: #ffebe6;
     border: 2px solid var(--color-danger);
     color: var(--color-danger);
-    padding: 0.75rem;
+    padding: 0.5rem 0.75rem;
     border-radius: 8px;
     text-align: center;
     font-weight: bold;
-    margin-bottom: 1rem;
+    margin-bottom: 0.75rem;
   }
 
   .numpad {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
-    margin-top: 1rem;
+    gap: clamp(0.4rem, 1vh, 0.75rem);
+    margin-top: 0.5rem;
   }
 
   .numpad-btn {
-    height: 70px;
-    font-size: 1.6rem;
+    height: clamp(48px, 6.5vh, 70px);
+    font-size: clamp(1.2rem, 1.8vw, 1.6rem);
     font-weight: bold;
     border-radius: 12px;
     border: 2px solid var(--color-border);

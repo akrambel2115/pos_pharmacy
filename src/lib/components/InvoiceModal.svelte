@@ -92,12 +92,6 @@
       <div class="receipt-meta">
         <p><strong>Facture N°:</strong> #{invoice.id}</p>
         <p><strong>Date:</strong> {formatDateFr(invoice.created_at)}</p>
-        {#if invoice.patient_name}
-          <p><strong>Patient:</strong> {invoice.patient_name}</p>
-        {/if}
-        {#if invoice.patient_birth_date}
-          <p><strong>Date de naiss.:</strong> {formatDateFr(invoice.patient_birth_date)}</p>
-        {/if}
         {#if invoice.prescribing_doctor_name}
           <p><strong>Médecin:</strong> {invoice.prescribing_doctor_name}</p>
         {/if}
@@ -162,7 +156,13 @@
   .invoice-modal {
     position: relative;
     max-width: 440px;
-    padding: 2.2rem 1.5rem 1.5rem 1.5rem;
+    width: 90%;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: clamp(1.5rem, 2.5vw, 2.2rem) clamp(1rem, 2vw, 1.5rem) clamp(0.75rem, 1.5vw, 1.25rem);
+    box-sizing: border-box;
   }
 
   .btn-close-modal {
@@ -200,11 +200,13 @@
   .receipt-paper {
     background-color: #fcfcfc;
     border: 1px dashed #555;
-    padding: 1.25rem;
+    padding: clamp(0.75rem, 1.5vw, 1.25rem);
     color: #000;
     font-family: 'Courier New', Courier, monospace;
-    font-size: 0.95rem;
-    max-height: calc(80vh - 120px);
+    font-size: clamp(0.85rem, 0.95vw, 0.95rem);
+    flex: 1;
+    min-height: 0;
+    max-height: calc(85vh - 110px);
     overflow-y: auto;
   }
 
