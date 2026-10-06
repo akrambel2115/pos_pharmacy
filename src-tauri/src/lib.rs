@@ -1,5 +1,6 @@
 mod db;
 mod commands;
+mod license;
 
 use db::{DbState, init_db};
 use std::sync::Mutex;
@@ -20,6 +21,9 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            license::get_machine_code,
+            license::check_license,
+            license::activate_license,
             commands::is_pin_configured,
             commands::configure_pin,
             commands::verify_pin,

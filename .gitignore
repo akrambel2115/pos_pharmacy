@@ -58,3 +58,7 @@ __pycache__/
 *.sqlite
 *.sqlite-journal
 *.sqlite3
+
+# License signing key (SECRET) and public key output
+tools/license/license-private.key
+tools/license/license-public.txt
