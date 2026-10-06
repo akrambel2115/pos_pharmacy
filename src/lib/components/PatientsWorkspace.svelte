@@ -195,7 +195,7 @@
 <div class="patients-workspace">
   <!-- Search and Actions Header -->
   <div class="stock-header-actions mt-1">
-    <div class="search-filter-row" style="flex: 1; margin: 0;">
+    <div class="search-filter-row">
       <input
         type="text"
         class="input-pos search-input"
@@ -203,11 +203,10 @@
         bind:value={searchQuery}
         oninput={() => currentPage = 1}
       />
+      <button onclick={openAddModal} class="btn-add-manual-stock" title={t("addCustomer")}>
+        <img src={plusIcon} alt="Add" class="plus-icon-img" />
+      </button>
     </div>
-    
-    <button onclick={openAddModal} class="btn-add-manual-stock" title={t("addCustomer")}>
-      <img src={plusIcon} alt="Add" class="plus-icon-img" />
-    </button>
   </div>
 
   <!-- Patients List Table -->
@@ -409,9 +408,10 @@
 
   .search-filter-row {
     display: flex;
-    gap: 1rem;
+    gap: clamp(0.5rem, 1vw, 1rem);
     flex: 1;
     max-width: 600px;
+    align-items: center;
   }
 
   .search-input {
@@ -434,8 +434,8 @@
   }
 
   .plus-icon-img {
-    width: 32px;
-    height: 32px;
+    width: clamp(26px, 3vw, 32px);
+    height: clamp(26px, 3vw, 32px);
     object-fit: contain;
   }
 
@@ -444,23 +444,26 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
   }
 
   .table-scroll-container {
     flex: 1;
-    overflow-y: auto;
+    overflow: auto;
     width: 100%;
+    min-height: 0;
   }
 
   /* Table styling */
   .pos-table {
     width: 100%;
+    min-width: 600px;
     border-collapse: collapse;
-    font-size: 1.1rem;
+    font-size: clamp(0.9rem, 1.05vw, 1.1rem);
   }
 
   .pos-table th, .pos-table td {
-    padding: 0.75rem 1rem;
+    padding: clamp(0.45rem, 0.8vh, 0.75rem) clamp(0.5rem, 0.8vw, 1rem);
     border-bottom: var(--border-width) solid var(--color-border);
     text-align: left;
   }
@@ -482,7 +485,7 @@
   }
 
   .placeholder-row td {
-    height: 53px;
+    height: clamp(32px, 3.8vh, 50px);
   }
 
   .patient-actions-wrapper {
@@ -507,8 +510,8 @@
   }
 
   .patient-action-icon {
-    width: 24px;
-    height: 24px;
+    width: clamp(20px, 1.8vw, 24px);
+    height: clamp(20px, 1.8vw, 24px);
     object-fit: contain;
   }
 
@@ -518,15 +521,15 @@
     justify-content: center;
     align-items: center;
     gap: 1.5rem;
-    margin-top: 1rem;
+    margin-top: 0.5rem;
   }
 
   .btn-pos-action {
     background-color: var(--color-bg-app);
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--border-radius);
-    padding: 0.5rem 1rem;
-    font-size: 1.1rem;
+    padding: 0.4rem 0.8rem;
+    font-size: clamp(0.95rem, 1vw, 1.1rem);
     font-weight: bold;
     cursor: pointer;
   }
@@ -537,7 +540,7 @@
   }
 
   .page-indicator {
-    font-size: 1.15rem;
+    font-size: clamp(0.95rem, 1.1vw, 1.15rem);
     font-weight: bold;
   }
 

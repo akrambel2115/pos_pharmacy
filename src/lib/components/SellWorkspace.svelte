@@ -278,6 +278,15 @@
       scannerError = t("cartEmptyError");
       return;
     }
+    if (!selectedCustomer) {
+      scannerError = t("selectCustomerFirst");
+      setTimeout(() => {
+        if (scannerError === t("selectCustomerFirst")) {
+          scannerError = "";
+        }
+      }, 4000);
+      return;
+    }
     if (requiresPrescription && (!cartStore.patientName.trim() || !cartStore.doctorName.trim())) {
       scannerError = t("prescriptionInputError");
       return;
@@ -455,19 +464,30 @@
     <!-- Active Cart Panel -->
     <div class="cart-section card">
       <div class="cart-total-header">
-        {#if selectedCustomer}
-          <span class="patient-name-total">
-            {selectedCustomer.name}
-          </span>
-        {/if}
-        <div class="cart-total-top">
-          {cartTotal.toFixed(2)} {t("da")}
+        <div class="cart-total-side-start"></div>
+        <div class="cart-total-center-group">
+          {#if selectedCustomer}
+            <div class="patient-name-total" title="{selectedCustomer.name} ({formatDateFr(selectedCustomer.birth_date)})">
+              {selectedCustomer.name}
+            </div>
+          {/if}
+          <div class="cart-total-top">
+            {cartTotal.toFixed(2)} {t("da")}
+          </div>
         </div>
-        {#if cart.length > 0}
-          <button onclick={handleValidateClick} class="btn-validate-cart" title={t("checkout")}>
-            <img src={checkIcon} alt="Validate" class="check-icon-img" />
-          </button>
-        {/if}
+        <div class="cart-total-side-end">
+          {#if cart.length > 0}
+            <button
+              type="button"
+              onclick={handleValidateClick}
+              class="btn-validate-cart"
+              disabled={!selectedCustomer}
+              title={!selectedCustomer ? t("selectCustomerFirst") : t("checkout")}
+            >
+              <img src={checkIcon} alt="Validate" class="check-icon-img" />
+            </button>
+          {/if}
+        </div>
       </div>
 
       <!-- Drug Search / Scanner Bar -->
@@ -530,7 +550,7 @@
                 </td>
               </tr>
             {/each}
-            {#each Array(Math.max(0, 10 - cart.length)) as _, i}
+            {#each Array(Math.max(0, 7 - cart.length)) as _, i}
               <tr class="placeholder-row">
                 <td>&nbsp;</td>
                 <td>&nbsp;</td>
@@ -547,6 +567,18 @@
                 </td>
               </tr>
             {/each}
+            {#if cart.length >= 7}
+              <tr class="add-manual-row">
+                <td colspan="4" class="manual-add-label">
+                  + {t("addDrugManually") || "Ajouter manuellement"}
+                </td>
+                <td>
+                  <button onclick={handleManualAdd} class="btn-add-manual" aria-label="Ajouter médicament" title="Ajouter manuellement">
+                    <img src={plusIcon} alt="Add" class="plus-icon-img" />
+                  </button>
+                </td>
+              </tr>
+            {/if}
           </tbody>
         </table>
       </div>
@@ -598,18 +630,43 @@
     </div>
     
     <div class="customer-search-box mt-1">
-      <input
-        type="text"
-        class="input-pos"
-        placeholder={t("searchPatient")}
-        bind:value={cartStore.customerInput}
-        oninput={handleCustomerInput}
-        disabled={selectedCustomer !== null}
-      />
       {#if selectedCustomer}
-        <button onclick={clearCustomer} class="clear-cust-btn" title="Désélectionner">
-          <img src={closepIcon} alt="Unselect" class="clear-cust-icon-img" />
-        </button>
+        <div class="selected-patient-card">
+          <div class="selected-patient-info">
+            <span class="selected-patient-name" title={selectedCustomer.name}>
+              {selectedCustomer.name}
+            </span>
+            <span class="selected-patient-birth">
+              {formatDateFr(selectedCustomer.birth_date)}
+            </span>
+          </div>
+          <div class="selected-patient-actions">
+            <button
+              type="button"
+              class="patient-action-btn"
+              onclick={() => viewPatientDetails(selectedCustomer)}
+              title="Voir détails"
+            >
+              <img src={viewIcon} alt="View" class="patient-action-icon" />
+            </button>
+            <button
+              type="button"
+              onclick={clearCustomer}
+              class="clear-cust-btn-card"
+              title="Désélectionner"
+            >
+              <img src={closepIcon} alt="Unselect" class="clear-cust-icon-img" />
+            </button>
+          </div>
+        </div>
+      {:else}
+        <input
+          type="text"
+          class="input-pos"
+          placeholder={t("searchPatient")}
+          bind:value={cartStore.customerInput}
+          oninput={handleCustomerInput}
+        />
       {/if}
 
       {#if showSuggestions && customerSuggestions.length > 0}
@@ -617,7 +674,8 @@
           {#each customerSuggestions as sugg}
             <li>
               <button class="patient-name-btn" onclick={() => selectCustomer(sugg)}>
-                {sugg.name} <span class="patient-birth-tag">({formatDateFr(sugg.birth_date)})</span>
+                <span class="sugg-patient-name">{sugg.name}</span>
+                <span class="sugg-patient-birth">{formatDateFr(sugg.birth_date)}</span>
               </button>
               <div class="patient-actions-wrapper">
                 <button class="patient-action-btn" onclick={(e) => { e.stopPropagation(); viewPatientDetails(sugg); }} title="Voir détails">
@@ -946,18 +1004,41 @@
 <style>
   .sell-workspace {
     display: grid;
-    grid-template-columns: 3fr 1fr;
-    gap: 1.5rem;
+    grid-template-columns: minmax(0, 1fr) clamp(260px, 28vw, 360px);
+    gap: clamp(0.75rem, 1.4vw, 1.5rem);
     width: 100%;
     height: 100%;
     box-sizing: border-box;
+    min-height: 0;
+  }
+
+  @media (max-width: 900px) {
+    .sell-workspace {
+      grid-template-columns: minmax(0, 1fr) 240px;
+      gap: 0.75rem;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .sell-workspace {
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      height: 100%;
+    }
+    .customer-sidebar {
+      height: auto;
+      min-height: 280px;
+      flex-shrink: 0;
+    }
   }
 
   .main-sale-area {
     display: flex;
     flex-direction: column;
-    gap: 1rem;
+    gap: clamp(0.5rem, 1vh, 1rem);
     height: 100%;
+    min-height: 0;
     overflow: hidden;
   }
 
@@ -965,8 +1046,9 @@
     background-color: var(--color-bg-card);
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--border-radius);
-    padding: 1.5rem;
+    padding: clamp(0.75rem, 1.4vw, 1.5rem);
     box-shadow: 0 4px 6px var(--color-shadow);
+    box-sizing: border-box;
   }
 
   .cart-section {
@@ -974,12 +1056,14 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
   }
 
   .table-scroll-container {
     flex: 1;
-    overflow-y: auto;
+    overflow: auto;
     width: 100%;
+    min-height: 0;
   }
 
   .customer-sidebar {
@@ -987,6 +1071,7 @@
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    min-height: 0;
   }
 
   .drug-name-cell {
@@ -1007,17 +1092,17 @@
   .qty-adjuster {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: clamp(0.35rem, 0.7vw, 0.75rem);
   }
 
   .qty-btn {
-    width: 32px;
-    height: 32px;
+    width: clamp(26px, 2.8vw, 32px);
+    height: clamp(26px, 2.8vw, 32px);
     border: 2px solid var(--color-border);
     border-radius: 6px;
     background-color: var(--color-bg-app);
     font-weight: bold;
-    font-size: 1.2rem;
+    font-size: clamp(1rem, 1.1vw, 1.2rem);
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1030,7 +1115,9 @@
 
   .qty-val {
     font-weight: bold;
-    font-size: 1.15rem;
+    font-size: clamp(1rem, 1.1vw, 1.15rem);
+    min-width: 1.5ch;
+    text-align: center;
   }
 
   .btn-remove {
@@ -1050,8 +1137,8 @@
   }
 
   .trash-icon-img {
-    width: 32px;
-    height: 32px;
+    width: clamp(24px, 2.5vw, 32px);
+    height: clamp(24px, 2.5vw, 32px);
     object-fit: contain;
   }
 
@@ -1072,8 +1159,8 @@
   }
 
   .plus-icon-img {
-    width: 32px;
-    height: 32px;
+    width: clamp(24px, 2.5vw, 32px);
+    height: clamp(24px, 2.5vw, 32px);
     object-fit: contain;
   }
 
@@ -1103,56 +1190,106 @@
   }
 
   .placeholder-row td {
-    height: 53px;
+    height: clamp(32px, 3.8vh, 48px);
     color: transparent;
+  }
+
+  .manual-add-label {
+    color: #6b778c;
+    font-size: 0.95rem;
+    font-weight: 600;
+    padding-left: 0.5rem;
+  }
+
+  :global([dir="rtl"]) .manual-add-label {
+    padding-left: 0;
+    padding-right: 0.5rem;
   }
 
   .cart-total-header {
     display: flex;
-    justify-content: center;
+    justify-content: space-between;
     align-items: center;
-    position: relative;
-    margin-bottom: 1.5rem;
+    gap: 0.75rem;
+    margin-bottom: clamp(0.75rem, 1.5vh, 1.5rem);
+    min-height: clamp(54px, 7vh, 76px);
+  }
+
+  .cart-total-side-start {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .cart-total-center-group {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.15rem;
+    text-align: center;
+  }
+
+  .patient-name-total {
+    font-size: clamp(1.2rem, 1.8vw, 1.65rem);
+    font-weight: 800;
+    color: var(--color-text-dark);
+    text-align: center;
+    line-height: 1.2;
+    text-transform: capitalize;
+    letter-spacing: 0.02em;
+    max-width: clamp(280px, 45vw, 600px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .cart-total-top {
-    font-size: 3rem;
+    font-size: clamp(1.8rem, 3.2vw, 3rem);
     font-weight: 900;
     color: var(--color-primary);
     font-family: monospace;
     letter-spacing: 0.05em;
     text-align: center;
+    line-height: 1.1;
+  }
+
+  .cart-total-side-end {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  :global([dir="rtl"]) .cart-total-side-end {
+    justify-content: flex-start;
   }
 
   .btn-validate-cart {
-    position: absolute;
     background-color: transparent;
     border: none;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: transform 0.15s ease;
+    transition: transform 0.15s ease, opacity 0.15s ease;
     padding: 0;
   }
 
-  :global([dir="ltr"]) .btn-validate-cart {
-    right: 1.5rem;
-    left: auto;
-  }
-
-  :global([dir="rtl"]) .btn-validate-cart {
-    left: 1.5rem;
-    right: auto;
-  }
-
-  .btn-validate-cart:hover {
+  .btn-validate-cart:hover:not(:disabled) {
     transform: scale(1.15);
   }
 
+  .btn-validate-cart:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    filter: grayscale(100%);
+  }
+
   .check-icon-img {
-    width: 48px;
-    height: 48px;
+    width: clamp(36px, 4vw, 48px);
+    height: clamp(36px, 4vw, 48px);
     object-fit: contain;
   }
 
@@ -1174,7 +1311,13 @@
   .prescription-inputs {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 1rem;
+    gap: clamp(0.5rem, 1vw, 1rem);
+  }
+
+  @media (max-width: 600px) {
+    .prescription-inputs {
+      grid-template-columns: 1fr;
+    }
   }
 
   .form-group {
@@ -1194,21 +1337,6 @@
     align-items: center;
   }
 
-  .clear-cust-btn {
-    position: absolute;
-    right: 1rem;
-    background: none;
-    border: none;
-    font-weight: bold;
-    cursor: pointer;
-    color: var(--color-danger);
-  }
-
-  :global([dir="rtl"]) .clear-cust-btn {
-    left: 1rem;
-    right: auto;
-  }
-
   .suggestions-list {
     position: absolute;
     top: 100%;
@@ -1218,7 +1346,7 @@
     border: 2px solid var(--color-border);
     border-radius: 8px;
     margin-top: 4px;
-    max-height: 200px;
+    max-height: clamp(160px, 30vh, 220px);
     overflow-y: auto;
     z-index: 50;
     box-shadow: 0 4px 10px rgba(0,0,0,0.15);
@@ -1232,7 +1360,7 @@
     border: none;
     background: none;
     cursor: pointer;
-    font-size: 1.1rem;
+    font-size: clamp(0.95rem, 1.1vw, 1.1rem);
     font-weight: 600;
   }
 
@@ -1251,6 +1379,8 @@
     justify-content: space-between;
     align-items: center;
     width: 100%;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
   .badge-loan {
@@ -1259,6 +1389,7 @@
     font-weight: bold;
     display: inline-block;
     font-size: 0.85rem;
+    white-space: nowrap;
   }
 
   .status-ok {
@@ -1285,9 +1416,10 @@
   .invoice-box {
     background-color: var(--color-bg-app);
     border: 2px solid var(--color-border);
-    padding: 1rem;
+    padding: clamp(0.6rem, 1vw, 1rem);
     border-radius: 8px;
-    font-size: 1rem;
+    font-size: clamp(0.85rem, 0.95vw, 1rem);
+    word-break: break-word;
   }
 
   .invoice-box p {
@@ -1297,7 +1429,7 @@
   .invoice-items-mini {
     list-style: square;
     padding-left: 1.2rem;
-    font-size: 0.95rem;
+    font-size: clamp(0.85rem, 0.9vw, 0.95rem);
     margin-top: 0.25rem;
   }
 
@@ -1305,11 +1437,12 @@
   .pos-table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 1.1rem;
+    font-size: clamp(0.95rem, 1.05vw, 1.1rem);
+    min-width: 460px;
   }
 
   .pos-table th, .pos-table td {
-    padding: 0.75rem 1rem;
+    padding: clamp(0.4rem, 0.8vh, 0.75rem) clamp(0.5rem, 1vw, 1rem);
     border-bottom: 1px solid var(--color-border);
     text-align: left;
   }
@@ -1366,8 +1499,12 @@
   }
 
   .client-modal {
-    max-width: 450px;
-    padding: 1.5rem;
+    max-width: 480px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    padding: clamp(1rem, 2vw, 1.5rem);
+    box-sizing: border-box;
   }
 
   .client-form {
@@ -1386,7 +1523,7 @@
     border: 2px solid var(--color-border);
     border-radius: var(--border-radius);
     z-index: 1000;
-    max-height: 250px;
+    max-height: clamp(160px, 30vh, 240px);
     overflow-y: auto;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     margin: 0;
@@ -1400,38 +1537,111 @@
     align-items: center;
     border-bottom: 1px solid var(--color-bg-app);
     padding: 0.5rem 0.75rem;
-  }
-
-  .suggestions-list li:hover {
-    background-color: var(--color-bg-app);
+    gap: 0.5rem;
   }
 
   .patient-name-btn {
     flex: 1;
+    min-width: 0;
     background: transparent;
     border: none;
     text-align: left;
-    font-size: 1.1rem;
-    font-weight: 600;
-    color: var(--color-text-dark);
     cursor: pointer;
-    padding: 0.25rem 0;
+    padding: 0.3rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
   }
 
   :global([dir="rtl"]) .patient-name-btn {
     text-align: right;
   }
 
+  .sugg-patient-name {
+    font-size: clamp(0.95rem, 1.05vw, 1.1rem);
+    font-weight: 700;
+    color: var(--color-text-dark);
+    word-break: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.25;
+  }
+
+  .sugg-patient-birth {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--color-primary);
+  }
+
+  /* Selected Patient Card in Search Box */
+  .selected-patient-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.5rem 0.85rem;
+    border: 2px solid var(--color-primary);
+    background-color: var(--color-bg-app);
+    border-radius: var(--border-radius);
+    box-sizing: border-box;
+    gap: 0.5rem;
+  }
+
+  .selected-patient-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .selected-patient-name {
+    font-size: clamp(0.95rem, 1.05vw, 1.15rem);
+    font-weight: 800;
+    color: var(--color-primary-hover, var(--color-primary));
+    word-break: break-word;
+    overflow-wrap: break-word;
+    line-height: 1.25;
+  }
+
+  .selected-patient-birth {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #4b5563;
+  }
+
+  .selected-patient-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+
+  .clear-cust-btn-card {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.2rem;
+    transition: transform 0.1s ease;
+  }
+
+  .clear-cust-btn-card:hover {
+    transform: scale(1.15);
+  }
+
   .patient-actions-wrapper {
     display: flex;
-    gap: 0.15rem;
+    gap: 0.25rem;
     align-items: center;
+    flex-shrink: 0;
   }
 
   .patient-action-btn {
     background: transparent;
     border: none;
-    padding: 0.1rem;
+    padding: 0.2rem;
     cursor: pointer;
     display: flex;
     align-items: center;
@@ -1444,35 +1654,9 @@
   }
 
   .patient-action-icon {
-    width: 24px;
-    height: 24px;
+    width: clamp(20px, 2.2vw, 24px);
+    height: clamp(20px, 2.2vw, 24px);
     object-fit: contain;
-  }
-
-  .clear-cust-btn {
-    position: absolute;
-    background: transparent;
-    border: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    transition: transform 0.1s ease;
-  }
-
-  :global([dir="ltr"]) .clear-cust-btn {
-    right: 0.75rem;
-    left: auto;
-  }
-
-  :global([dir="rtl"]) .clear-cust-btn {
-    left: 0.75rem;
-    right: auto;
-  }
-
-  .clear-cust-btn:hover {
-    transform: scale(1.15);
   }
 
   .clear-cust-icon-img {
@@ -1486,26 +1670,6 @@
     color: #212529 !important;
     border-color: #ced4da;
     cursor: not-allowed;
-  }
-
-  .patient-name-total {
-    position: absolute;
-    font-size: 1.8rem;
-    font-weight: 850;
-    color: #000;
-    background: none;
-    border: none;
-    padding: 0;
-  }
-
-  :global([dir="ltr"]) .patient-name-total {
-    left: 1.5rem;
-    right: auto;
-  }
-
-  :global([dir="rtl"]) .patient-name-total {
-    right: 1.5rem;
-    left: auto;
   }
 
   .error-banner {
@@ -1572,14 +1736,14 @@
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    max-height: 280px;
+    max-height: clamp(160px, 32vh, 280px);
     overflow-y: auto;
   }
 
   .loan-match-item {
     background-color: var(--color-bg-app);
     border: 1px solid var(--color-border);
-    padding: 0.85rem 1rem;
+    padding: clamp(0.6rem, 1.2vw, 0.85rem) clamp(0.75rem, 1.5vw, 1rem);
     border-radius: var(--border-radius);
   }
 
@@ -1589,11 +1753,12 @@
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
+    flex-wrap: wrap;
   }
 
   .drug-name-bold {
     font-weight: 750;
-    font-size: 1.05rem;
+    font-size: clamp(0.95rem, 1.1vw, 1.05rem);
     color: var(--color-text-dark);
     word-break: break-word;
   }
@@ -1614,6 +1779,12 @@
     grid-template-columns: 1fr 1fr 1fr;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
+  }
+
+  @media (max-width: 440px) {
+    .loan-grid {
+      grid-template-columns: 1fr;
+    }
   }
 
   .loan-grid-cell {
