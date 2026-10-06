@@ -13,6 +13,7 @@
   import printerIcon from "../../public/icons/printer.png";
   import trashIcon from "../../public/icons/trash.png";
   import closeIcon from "../../public/icons/close.png";
+  import checkIcon from "../../public/icons/check.png";
 
   // Modal
   import InvoiceImportModal from "./InvoiceImportModal.svelte";
@@ -68,11 +69,14 @@
   let showImportModal = $state(false);
 
   // Print Barcode State
+  let isPrintMode = $state(false);
+  let selectedInvoiceIds = $state<Set<number>>(new Set());
   let showPrintChoiceModal = $state(false);
   let showPrintBarcodeModal = $state(false);
   let printDrugsList = $state<any[]>([]);
   let labelCopiesMap = $state<Record<string, number>>({});
   let printModalTitle = $state("Impression des codes-barres");
+  let isBulkLoadingDrugs = $state(false);
 
   // Delete Confirmation State
   let invoiceToDelete = $state<ImportedInvoiceItem | null>(null);
@@ -228,6 +232,66 @@
   // Print Handlers
   function openPrintChoice() {
     showPrintChoiceModal = true;
+  }
+
+  function handleStartSelection() {
+    showPrintChoiceModal = false;
+    isPrintMode = true;
+    selectedInvoiceIds = new Set(filteredInvoices.map(inv => inv.id));
+  }
+
+  function toggleSelectInvoice(id: number) {
+    const next = new Set(selectedInvoiceIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    selectedInvoiceIds = next;
+  }
+
+  let allVisibleSelected = $derived.by(() => {
+    if (filteredInvoices.length === 0) return false;
+    return filteredInvoices.every(inv => selectedInvoiceIds.has(inv.id));
+  });
+
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      selectedInvoiceIds = new Set();
+    } else {
+      selectedInvoiceIds = new Set(filteredInvoices.map(inv => inv.id));
+    }
+  }
+
+  async function handlePrintSelectedInvoices() {
+    if (selectedInvoiceIds.size === 0) {
+      alert("Veuillez sélectionner au moins une facture.");
+      return;
+    }
+
+    try {
+      isBulkLoadingDrugs = true;
+      const allItems: any[] = [];
+      const selectedList = invoices.filter(inv => selectedInvoiceIds.has(inv.id));
+
+      for (const inv of selectedList) {
+        const items = await invoke<any[]>("get_imported_invoice_drugs", { invoiceId: inv.id });
+        if (items && items.length > 0) {
+          allItems.push(...items);
+        }
+      }
+
+      isBulkLoadingDrugs = false;
+      if (allItems.length === 0) {
+        alert("Aucun médicament trouvé dans les factures sélectionnées.");
+        return;
+      }
+
+      prepareBarcodePrint(allItems, `Factures sélectionnées (${selectedInvoiceIds.size})`);
+    } catch (err: any) {
+      isBulkLoadingDrugs = false;
+      alert("Erreur: " + err.toString());
+    }
   }
 
   async function handlePrintLastInvoice() {
@@ -416,10 +480,47 @@
 
   <!-- Invoices Table (matching StockWorkspace pos-table) -->
   <div class="cart-section">
+    {#if isPrintMode}
+      <div class="print-selection-toolbar">
+        <div class="print-selection-info">
+          <strong>Mode sélection d'impression :</strong>
+          <span>{selectedInvoiceIds.size} facture(s) cochée(s)</span>
+        </div>
+        <div class="print-selection-actions">
+          <button
+            type="button"
+            class="btn-action btn-action-primary"
+            onclick={handlePrintSelectedInvoices}
+            disabled={isBulkLoadingDrugs || selectedInvoiceIds.size === 0}
+          >
+            {isBulkLoadingDrugs ? "Chargement..." : `Imprimer les étiquettes (${selectedInvoiceIds.size})`}
+          </button>
+          <button
+            type="button"
+            class="btn-action btn-action-secondary"
+            onclick={() => { isPrintMode = false; selectedInvoiceIds = new Set(); }}
+          >
+            Quitter la sélection
+          </button>
+        </div>
+      </div>
+    {/if}
+
     <div class="table-scroll-container">
       <table class="pos-table">
         <thead>
           <tr>
+            {#if isPrintMode}
+              <th class="checkbox-th">
+                <input 
+                  type="checkbox" 
+                  class="pos-checkbox" 
+                  checked={allVisibleSelected} 
+                  onchange={toggleSelectAll} 
+                  title={allVisibleSelected ? "Tout décocher" : "Tout cocher"}
+                />
+              </th>
+            {/if}
             <th onclick={() => toggleSort("number")} class="sortable-th">
               {t("invoiceNumber")}{getSortIndicator("number")}
             </th>
@@ -447,13 +548,23 @@
         <tbody>
           {#if sortedInvoices.length === 0}
             <tr>
-              <td colspan="8" class="empty-row-text">
+              <td colspan={isPrintMode ? 9 : 8} class="empty-row-text">
                 {t("noInvoicesFound")}
               </td>
             </tr>
           {:else}
             {#each paginatedInvoices as inv}
-              <tr>
+              <tr class={isPrintMode && selectedInvoiceIds.has(inv.id) ? "row-selected" : ""}>
+                {#if isPrintMode}
+                  <td class="checkbox-td" onclick={(e) => e.stopPropagation()}>
+                    <input 
+                      type="checkbox" 
+                      class="pos-checkbox" 
+                      checked={selectedInvoiceIds.has(inv.id)} 
+                      onchange={() => toggleSelectInvoice(inv.id)}
+                    />
+                  </td>
+                {/if}
                 <td class="bold">
                   <div class="drug-title-wrapper">
                     <span class="drug-name-text">
@@ -517,6 +628,9 @@
           <!-- Placeholder rows to maintain fixed height matching StockWorkspace -->
           {#each Array(Math.max(0, pageSize - paginatedInvoices.length)) as _}
             <tr class="placeholder-row">
+              {#if isPrintMode}
+                <td>&nbsp;</td>
+              {/if}
               <td>&nbsp;</td>
               <td>&nbsp;</td>
               <td>&nbsp;</td>
@@ -575,10 +689,10 @@
           <span class="btn-pos-choice-desc">Étiquettes des médicaments du dernier arrivage</span>
         </button>
 
-        <button type="button" class="btn-pos-choice" onclick={() => { showPrintChoiceModal = false; window.print(); }}>
-          <img src={printerIcon} alt="Imprimer le registre" class="btn-pos-choice-icon" />
-          <span class="btn-pos-choice-label">Imprimer le registre</span>
-          <span class="btn-pos-choice-desc">Imprimer le tableau des factures affichées</span>
+        <button type="button" class="btn-pos-choice" onclick={handleStartSelection}>
+          <img src={checkIcon} alt="Sélectionner des factures" class="btn-pos-choice-icon" />
+          <span class="btn-pos-choice-label">Sélectionner des factures</span>
+          <span class="btn-pos-choice-desc">Choisir par cases à cocher dans la liste</span>
         </button>
       </div>
 
@@ -799,7 +913,7 @@
       <div class="confirm-actions">
         <button 
           type="button" 
-          class="btn-pos-action btn-danger" 
+          class="btn-action btn-action-secondary" 
           disabled={isDeleting}
           onclick={() => invoiceToDelete = null}
         >
@@ -845,30 +959,33 @@
     justify-content: space-between;
     align-items: center;
     width: 100%;
-    gap: 1.25rem;
+    gap: 1rem;
     box-sizing: border-box;
+    flex-wrap: wrap;
   }
 
   .search-filter-row {
     display: flex;
-    gap: 0.85rem;
+    gap: 0.75rem;
     align-items: center;
     flex: 1;
+    min-width: 280px;
+    flex-wrap: wrap;
   }
 
   .search-input {
-    width: 600px;
+    width: clamp(200px, 35vw, 600px);
     max-width: 600px;
-    min-width: 200px;
-    flex: 0 1 600px;
-    font-size: 1.15rem;
+    min-width: 180px;
+    flex: 1 1 240px;
+    font-size: clamp(0.95rem, 1.1vw, 1.15rem);
   }
 
   .supplier-select,
   .date-select {
-    width: fit-content;
+    width: auto;
     flex-shrink: 0;
-    font-size: 1.15rem;
+    font-size: clamp(0.9rem, 1vw, 1.15rem);
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
@@ -878,12 +995,13 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    flex-shrink: 0;
   }
 
   .btn-header-icon-action {
     background: transparent;
     border: none;
-    padding: 0.35rem 0.65rem;
+    padding: clamp(0.25rem, 0.5vw, 0.35rem) clamp(0.4rem, 0.8vw, 0.65rem);
     cursor: pointer;
     display: flex;
     flex-direction: column;
@@ -902,17 +1020,101 @@
   }
 
   .header-action-icon-img {
-    width: 30px;
-    height: 30px;
+    width: clamp(24px, 2.5vw, 30px);
+    height: clamp(24px, 2.5vw, 30px);
     object-fit: contain;
   }
 
   .header-action-icon-label {
-    font-size: 0.85rem;
+    font-size: clamp(0.75rem, 0.85vw, 0.85rem);
     font-weight: 700;
     color: var(--color-primary);
     line-height: 1.1;
     white-space: nowrap;
+  }
+
+  /* Print Selection Toolbar */
+  .print-selection-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: rgba(0, 135, 90, 0.08);
+    border: 1.5px solid var(--color-primary);
+    border-radius: var(--border-radius);
+    padding: clamp(0.5rem, 0.8vh, 0.75rem) clamp(0.75rem, 1.2vw, 1.25rem);
+    margin-bottom: 0.75rem;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .print-selection-info {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: clamp(0.9rem, 1vw, 1.05rem);
+    color: var(--color-primary);
+  }
+
+  .print-selection-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .btn-action {
+    padding: clamp(0.4rem, 0.6vh, 0.6rem) clamp(0.8rem, 1vw, 1.2rem);
+    border-radius: var(--border-radius);
+    font-size: clamp(0.85rem, 0.95vw, 1rem);
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+  }
+
+  .btn-action-primary {
+    background-color: var(--color-primary);
+    color: #ffffff;
+  }
+
+  .btn-action-primary:hover:not(:disabled) {
+    background-color: var(--color-primary-hover);
+    transform: translateY(-1px);
+  }
+
+  .btn-action-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-action-secondary {
+    background-color: var(--color-bg-card);
+    border: var(--border-width) solid var(--color-border);
+    color: var(--color-text-dark);
+  }
+
+  .btn-action-secondary:hover {
+    background-color: var(--color-bg-app);
+    border-color: var(--color-text-secondary);
+  }
+
+  .pos-checkbox {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+    accent-color: var(--color-primary);
+  }
+
+  .checkbox-th, .checkbox-td {
+    width: 44px;
+    min-width: 44px;
+    text-align: center !important;
+  }
+
+  .row-selected {
+    background-color: rgba(0, 135, 90, 0.08) !important;
   }
 
   /* Table container matching StockWorkspace */
@@ -921,22 +1123,25 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    min-height: 0;
   }
 
   .table-scroll-container {
     flex: 1;
-    overflow-y: auto;
+    overflow: auto;
     width: 100%;
+    min-height: 0;
   }
 
   .pos-table {
     width: 100%;
+    min-width: 860px;
     border-collapse: collapse;
-    font-size: 1.1rem;
+    font-size: clamp(0.9rem, 1.05vw, 1.1rem);
   }
 
   .pos-table th, .pos-table td {
-    padding: 0.75rem 1rem;
+    padding: clamp(0.4rem, 0.8vh, 0.75rem) clamp(0.5rem, 0.8vw, 1rem);
     border-bottom: var(--border-width) solid var(--color-border);
     text-align: left;
     vertical-align: middle;
@@ -969,12 +1174,12 @@
   }
 
   .placeholder-row td {
-    height: 53px;
+    height: clamp(32px, 3.8vh, 50px);
   }
 
   .empty-row-text {
     text-align: center;
-    padding: 2.5rem 1rem;
+    padding: clamp(1rem, 2vh, 2.5rem) 1rem;
     color: #6b778c;
     font-style: italic;
   }
@@ -986,7 +1191,7 @@
   }
 
   .drug-name-text {
-    font-size: 1.1rem;
+    font-size: clamp(0.95rem, 1.1vw, 1.1rem);
   }
 
   .drug-barcode-badge {
@@ -1021,8 +1226,8 @@
   }
 
   .patient-action-icon {
-    width: 24px;
-    height: 24px;
+    width: clamp(20px, 1.8vw, 24px);
+    height: clamp(20px, 1.8vw, 24px);
     object-fit: contain;
   }
 
@@ -1032,15 +1237,15 @@
     justify-content: center;
     align-items: center;
     gap: 1.5rem;
-    margin-top: 1rem;
+    margin-top: 0.5rem;
   }
 
   .btn-pos-action {
     background-color: var(--color-bg-app);
     border: var(--border-width) solid var(--color-border);
     border-radius: var(--border-radius);
-    padding: 0.5rem 1rem;
-    font-size: 1.1rem;
+    padding: 0.4rem 0.8rem;
+    font-size: clamp(0.95rem, 1vw, 1.1rem);
     font-weight: bold;
     cursor: pointer;
     display: inline-flex;
@@ -1054,7 +1259,7 @@
   }
 
   .page-indicator {
-    font-size: 1.15rem;
+    font-size: clamp(0.95rem, 1.1vw, 1.15rem);
     font-weight: bold;
   }
 
@@ -1093,19 +1298,25 @@
 
   .invoice-details-modal {
     max-width: 900px;
-    width: 90%;
-    max-height: 85vh;
+    width: 92vw;
+    max-height: 90vh;
     display: flex;
     flex-direction: column;
-    padding: 1.5rem;
+    padding: clamp(1rem, 1.8vw, 1.5rem);
+    overflow: hidden;
   }
 
   .modal-table-wrap {
     flex: 1;
-    overflow-y: auto;
+    overflow: auto;
     border: 1px solid #ebecf0;
     border-radius: 8px;
     margin-bottom: 1rem;
+    min-height: 0;
+  }
+
+  .modal-table {
+    min-width: 650px;
   }
 
   .modal-actions-row {
@@ -1155,6 +1366,14 @@
     margin: 1rem 0;
   }
 
+  /* Choice Modal Grid */
+  .pos-choice-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.25rem;
+    margin: 1.25rem 0;
+  }
+
   .delete-summary-box {
     background-color: var(--color-bg-app);
     border: 1px solid var(--color-border);
@@ -1163,13 +1382,13 @@
     margin-bottom: 1.25rem;
     font-size: 0.95rem;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.5rem 1.25rem;
   }
 
   .delete-options-list {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 1rem;
     margin-bottom: 1.5rem;
   }
@@ -1241,36 +1460,6 @@
     cursor: not-allowed;
     transform: none;
     box-shadow: none;
-  }
-
-  .error-banner {
-    background-color: #ffebe6;
-    color: var(--color-danger);
-    border: 1px solid var(--color-danger);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    font-weight: 600;
-  }
-
-  .success-banner {
-    background-color: #e3fcef;
-    color: var(--color-primary);
-    border: 1px solid var(--color-primary);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    font-weight: 600;
-  }
-
-  .mt-1 {
-    margin-top: 0.25rem;
-  }
-
-  /* Choice Modal Grid */
-  .pos-choice-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1.25rem;
-    margin: 1.25rem 0;
   }
 
   .btn-pos-choice {

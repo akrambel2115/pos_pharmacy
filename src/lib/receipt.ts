@@ -88,20 +88,6 @@ export function generateThermalReceiptHtml(
         <span>${formatDateFr(invoice.created_at)}</span>
       </div>
 
-      ${invoice.patient_name ? `
-        <div class="meta-row">
-          <span>Patient:</span>
-          <span class="font-bold">${escapeHtml(invoice.patient_name)}</span>
-        </div>
-      ` : ""}
-
-      ${invoice.patient_birth_date ? `
-        <div class="meta-row">
-          <span>Date de naiss.:</span>
-          <span>${formatDateFr(invoice.patient_birth_date)}</span>
-        </div>
-      ` : ""}
-
       ${invoice.prescribing_doctor_name ? `
         <div class="meta-row">
           <span>Medecin:</span>
