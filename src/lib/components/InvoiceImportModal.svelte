@@ -30,6 +30,51 @@
   let renderedPages = $state<string[]>([]);
   let currentPreviewPageIndex = $state(0);
   let previewZoom = $state(1.0);
+  let previewPanX = $state(0);
+  let previewPanY = $state(0);
+  let isPanningPreview = $state(false);
+  let panStartX = 0;
+  let panStartY = 0;
+  let panOriginX = 0;
+  let panOriginY = 0;
+
+  function resetPreviewTransform() {
+    previewZoom = 1.0;
+    previewPanX = 0;
+    previewPanY = 0;
+  }
+
+  function handlePreviewMouseDown(e: MouseEvent) {
+    if (e.button !== 0) return; // Only primary mouse button
+    isPanningPreview = true;
+    panStartX = e.clientX;
+    panStartY = e.clientY;
+    panOriginX = previewPanX;
+    panOriginY = previewPanY;
+    e.preventDefault();
+  }
+
+  function handlePreviewMouseMove(e: MouseEvent) {
+    if (!isPanningPreview) return;
+    previewPanX = panOriginX + (e.clientX - panStartX);
+    previewPanY = panOriginY + (e.clientY - panStartY);
+  }
+
+  function handlePreviewMouseUp() {
+    isPanningPreview = false;
+  }
+
+  function handlePreviewWheel(e: WheelEvent) {
+    e.preventDefault();
+    const zoomStep = 0.15;
+    if (e.deltaY < 0) {
+      // Zoom in
+      previewZoom = Math.min(3.0, Math.round((previewZoom + zoomStep) * 100) / 100);
+    } else {
+      // Zoom out
+      previewZoom = Math.max(0.6, Math.round((previewZoom - zoomStep) * 100) / 100);
+    }
+  }
 
   // Gemini AI Verification state
   let isCheckingWithAi = $state(false);
@@ -83,6 +128,9 @@
   );
 
   onMount(async () => {
+    window.addEventListener("mousemove", handlePreviewMouseMove);
+    window.addEventListener("mouseup", handlePreviewMouseUp);
+
     try {
       const webview = getCurrentWebview();
       unlistenDragDrop = await webview.onDragDropEvent((event) => {
@@ -108,6 +156,8 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener("mousemove", handlePreviewMouseMove);
+    window.removeEventListener("mouseup", handlePreviewMouseUp);
     if (unlistenDragDrop) {
       unlistenDragDrop();
     }
@@ -182,10 +232,33 @@
     statusStep = t("analyzingPdf");
 
     try {
-      // 1. OCR Extraction
-      const rawPayload = await invoke<any>("scan_and_extract_invoice", {
-        pdfPath: pdfPath,
-      });
+      // Check user setting: directly apply AI extraction or use local OCR
+      const settings = await invoke<any>("get_settings").catch(() => null);
+      const isDirectAi = !!settings?.direct_ai_invoice;
+
+      let rawPayload: any = null;
+
+      if (isDirectAi) {
+        statusStep = t("aiChecking");
+        const savedKey = await invoke<string>("get_gemini_api_key").catch(() => "");
+        if (!savedKey || !savedKey.trim()) {
+          geminiApiKeyInput = "";
+          showApiKeyModal = true;
+          isAnalyzing = false;
+          statusStep = "";
+          return;
+        }
+
+        rawPayload = await invoke<any>("extract_invoice_with_gemini", {
+          pdfPath: pdfPath,
+          apiKey: savedKey.trim(),
+        });
+      } else {
+        // Standard 1. Offline OCR Extraction
+        rawPayload = await invoke<any>("scan_and_extract_invoice", {
+          pdfPath: pdfPath,
+        });
+      }
 
       if (!rawPayload.success) {
         throw new Error(rawPayload.error || "Échec de l'analyse du document.");
@@ -328,7 +401,11 @@
     try {
       await invoke("save_gemini_api_key", { apiKey: geminiApiKeyInput.trim() });
       showApiKeyModal = false;
-      await runGeminiVerification(geminiApiKeyInput.trim());
+      if (items.length === 0 && selectedPdfPath) {
+        await processInvoice(selectedPdfPath);
+      } else {
+        await runGeminiVerification(geminiApiKeyInput.trim());
+      }
     } catch (err: any) {
       generalError = cleanErrorMessage(err?.message || err?.toString() || "");
     }
@@ -688,25 +765,37 @@
           <div class="preview-controls">
             <span>Page {currentPreviewPageIndex + 1} / {renderedPages.length || 1}</span>
             <div class="zoom-buttons">
-              <button onclick={() => previewZoom = Math.max(0.6, previewZoom - 0.2)}>-</button>
-              <span>{Math.round(previewZoom * 100)}%</span>
-              <button onclick={() => previewZoom = Math.min(2.5, previewZoom + 0.2)}>+</button>
+              <button onclick={() => previewZoom = Math.max(0.6, Math.round((previewZoom - 0.2) * 10) / 10)} title="Zoom arrière">-</button>
+              <button class="zoom-level-btn" onclick={resetPreviewTransform} title="Réinitialiser zoom et position">{Math.round(previewZoom * 100)}%</button>
+              <button onclick={() => previewZoom = Math.min(3.0, Math.round((previewZoom + 0.2) * 10) / 10)} title="Zoom avant">+</button>
+              {#if previewZoom !== 1.0 || previewPanX !== 0 || previewPanY !== 0}
+                <button class="btn-reset-preview" onclick={resetPreviewTransform} title="Recentrer la vue">⟲</button>
+              {/if}
             </div>
             {#if renderedPages.length > 1}
               <div class="page-nav-buttons">
-                <button disabled={currentPreviewPageIndex === 0} onclick={() => currentPreviewPageIndex--}>◀</button>
-                <button disabled={currentPreviewPageIndex >= renderedPages.length - 1} onclick={() => currentPreviewPageIndex++}>▶</button>
+                <button disabled={currentPreviewPageIndex === 0} onclick={() => { currentPreviewPageIndex--; resetPreviewTransform(); }}>◀</button>
+                <button disabled={currentPreviewPageIndex >= renderedPages.length - 1} onclick={() => { currentPreviewPageIndex++; resetPreviewTransform(); }}>▶</button>
               </div>
             {/if}
           </div>
 
-          <div class="preview-viewport">
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <div 
+            class="preview-viewport" 
+            class:is-panning={isPanningPreview}
+            onmousedown={handlePreviewMouseDown}
+            onwheel={handlePreviewWheel}
+            role="region"
+            aria-label="Aperçu PDF déplaçable"
+          >
             {#if renderedPages.length > 0}
               <img 
                 src={renderedPages[currentPreviewPageIndex]} 
                 alt="Page de Facture" 
-                style="transform: scale({previewZoom}); transform-origin: top center;"
+                style="transform: translate({previewPanX}px, {previewPanY}px) scale({previewZoom}); transform-origin: top center;"
                 class="scanned-image"
+                draggable="false"
               />
             {:else}
               <p class="no-preview">Aucun aperçu disponible</p>
@@ -991,18 +1080,18 @@
     max-height: 960px;
     display: flex;
     flex-direction: column;
-    padding: 1.25rem 1.5rem;
+    padding: clamp(0.75rem, 1.5vw, 1.25rem) clamp(0.85rem, 1.8vw, 1.5rem);
     overflow: hidden;
     transition: width 0.2s ease, max-width 0.2s ease, height 0.2s ease;
   }
 
   .invoice-import-modal.is-compact {
-    width: 90vw;
+    width: 92vw;
     max-width: 540px;
     height: auto;
-    min-height: 380px;
-    max-height: 85vh;
-    padding: 1.5rem 1.75rem 1.75rem;
+    min-height: 360px;
+    max-height: 88vh;
+    padding: clamp(1rem, 2vw, 1.5rem);
   }
 
   .import-header {
@@ -1010,23 +1099,37 @@
     justify-content: space-between;
     align-items: center;
     border-bottom: 2px solid var(--color-border);
-    padding-bottom: 0.75rem;
-    margin-bottom: 1rem;
+    padding-bottom: clamp(0.4rem, 0.8vh, 0.75rem);
+    margin-bottom: clamp(0.5rem, 1vh, 0.85rem);
+    gap: 0.75rem;
+    flex-shrink: 0;
   }
 
   .title-group {
     display: flex;
     align-items: center;
-    gap: 1rem;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .title-group h2 {
+    font-size: clamp(1.1rem, 1.4vw, 1.5rem);
+    white-space: nowrap;
+    margin: 0;
   }
 
   .file-path-badge {
     background: #e1e4e8;
     color: #444;
-    padding: 0.25rem 0.6rem;
+    padding: 0.2rem 0.5rem;
     border-radius: 6px;
-    font-size: 0.85rem;
+    font-size: clamp(0.75rem, 0.85vw, 0.85rem);
     font-family: monospace;
+    max-width: min(400px, 35vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .btn-close {
@@ -1034,11 +1137,15 @@
     border: none;
     cursor: pointer;
     padding: 0.25rem;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .btn-close img {
-    width: 24px;
-    height: 24px;
+    width: clamp(20px, 1.6vw, 24px);
+    height: clamp(20px, 1.6vw, 24px);
   }
 
   .upload-dropzone {
@@ -1050,10 +1157,11 @@
     border: 2px dashed var(--color-border);
     border-radius: var(--border-radius);
     background: #f8fafc;
-    gap: 1rem;
-    padding: 2.25rem 1.5rem;
+    gap: clamp(0.75rem, 1.5vh, 1.25rem);
+    padding: clamp(1.5rem, 3vh, 2.5rem) clamp(1rem, 2vw, 2rem);
     cursor: pointer;
     transition: all 0.2s ease-in-out;
+    overflow-y: auto;
   }
 
   .upload-dropzone:hover {
@@ -1071,8 +1179,8 @@
   }
 
   .dropzone-pdf-img {
-    width: 72px;
-    height: 72px;
+    width: clamp(48px, 6vw, 72px);
+    height: clamp(48px, 6vw, 72px);
     object-fit: contain;
     transition: transform 0.2s ease-in-out;
   }
@@ -1083,7 +1191,7 @@
   }
 
   .dropzone-title {
-    font-size: 1.35rem;
+    font-size: clamp(1.1rem, 1.3vw, 1.35rem);
     font-weight: 800;
     color: var(--color-text-dark);
     margin: 0;
@@ -1091,7 +1199,7 @@
   }
 
   .dropzone-desc {
-    font-size: 1.05rem;
+    font-size: clamp(0.9rem, 1vw, 1.05rem);
     color: #4b5563;
     margin: 0;
     max-width: 440px;
@@ -1102,12 +1210,12 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0.7rem 2rem;
+    padding: clamp(0.5rem, 1vh, 0.7rem) clamp(1.2rem, 2vw, 2rem);
     background-color: var(--color-primary);
     color: #ffffff;
     border: 2px solid var(--color-primary-hover);
     border-radius: var(--border-radius);
-    font-size: 1.1rem;
+    font-size: clamp(0.95rem, 1.05vw, 1.1rem);
     font-weight: 750;
     cursor: pointer;
     box-shadow: 0 4px 6px var(--color-shadow);
@@ -1130,13 +1238,15 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1.5rem;
+    gap: 1.25rem;
+    padding: 1.5rem;
+    text-align: center;
   }
 
   .spinner {
-    width: 50px;
-    height: 50px;
-    border: 5px solid #e2e8f0;
+    width: clamp(36px, 4vw, 50px);
+    height: clamp(36px, 4vw, 50px);
+    border: 4px solid #e2e8f0;
     border-top-color: var(--color-primary);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
@@ -1149,60 +1259,96 @@
   .split-container {
     display: flex;
     flex: 1;
-    gap: 1.25rem;
+    gap: clamp(0.6rem, 1vw, 1.25rem);
     overflow: hidden;
     min-height: 0;
   }
 
   .preview-panel {
-    flex: 0 0 clamp(200px, 24vw, 330px);
+    flex: 0 0 clamp(180px, 22vw, 320px);
     display: flex;
     flex-direction: column;
     background: #2d3748;
     border-radius: 8px;
     overflow: hidden;
     min-height: 0;
+    min-width: 0;
   }
 
   .preview-controls {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.5rem 1rem;
+    padding: 0.4rem 0.65rem;
     background: #1a202c;
     color: #fff;
-    font-size: 0.9rem;
+    font-size: clamp(0.8rem, 0.85vw, 0.9rem);
     flex-wrap: wrap;
-    gap: 0.5rem;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+
+  .zoom-buttons, .page-nav-buttons {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
   }
 
   .zoom-buttons button, .page-nav-buttons button {
     background: #4a5568;
     color: #fff;
     border: none;
-    padding: 0.2rem 0.6rem;
+    padding: 0.2rem 0.5rem;
     border-radius: 4px;
     cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1.2;
+    transition: background 0.15s ease;
+  }
+
+  .zoom-buttons button:hover, .page-nav-buttons button:hover:not(:disabled) {
+    background: #2b6cb0;
+  }
+
+  .zoom-level-btn {
+    font-weight: 700;
+    min-width: 44px;
+  }
+
+  .btn-reset-preview {
+    font-weight: bold;
+    color: #93c5fd !important;
   }
 
   .preview-viewport {
     flex: 1;
-    overflow: auto;
-    padding: 1rem;
+    overflow: hidden;
+    position: relative;
+    padding: 0.75rem;
     display: flex;
     justify-content: center;
     align-items: flex-start;
-    background: #374151;
+    background: #1f2937;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .preview-viewport.is-panning {
+    cursor: grabbing;
   }
 
   .scanned-image {
     max-width: 100%;
     height: auto;
     object-fit: contain;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
     background: #fff;
     border-radius: 4px;
-    transition: transform 0.15s ease;
+    pointer-events: none;
+    user-select: none;
+    will-change: transform;
+    transition: transform 0.05s ease-out;
   }
 
   .review-panel {
@@ -1216,39 +1362,48 @@
 
   .meta-row {
     display: flex;
+    align-items: flex-end;
     flex-wrap: wrap;
-    gap: 0.75rem;
-    margin-bottom: 0.75rem;
+    gap: clamp(0.4rem, 0.8vw, 0.75rem);
+    margin-bottom: clamp(0.4rem, 0.8vh, 0.65rem);
+    flex-shrink: 0;
   }
 
   .meta-field {
-    flex: 1;
-    min-width: 130px;
+    flex: 1 1 120px;
+    min-width: 110px;
     display: flex;
     flex-direction: column;
     gap: 0.2rem;
   }
 
   .meta-field label {
-    font-size: 0.85rem;
+    font-size: clamp(0.78rem, 0.85vw, 0.85rem);
     font-weight: 700;
+    color: #374151;
+    white-space: nowrap;
   }
 
   .input-pos-sm {
-    padding: 0.4rem 0.6rem;
+    padding: clamp(0.3rem, 0.6vh, 0.42rem) clamp(0.45rem, 0.6vw, 0.6rem);
     border: 2px solid var(--color-border);
     border-radius: 6px;
-    font-size: 0.95rem;
+    font-size: clamp(0.85rem, 0.9vw, 0.95rem);
+    font-weight: 600;
+    min-width: 0;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .financial-summary {
     display: flex;
-    justify-content: space-around;
-    padding: 0.6rem;
+    align-items: center;
+    padding: clamp(0.35rem, 0.6vh, 0.55rem) clamp(0.5rem, 1vw, 0.85rem);
     border-radius: 6px;
-    font-size: 0.95rem;
-    margin-bottom: 0.75rem;
+    font-size: clamp(0.82rem, 0.9vw, 0.95rem);
+    margin-bottom: clamp(0.4rem, 0.8vh, 0.65rem);
     overflow-x: auto;
+    flex-shrink: 0;
   }
 
   .summary-details {
@@ -1257,7 +1412,8 @@
     width: 100%;
     align-items: center;
     flex-wrap: wrap;
-    gap: 0.75rem;
+    gap: clamp(0.5rem, 1vw, 1.25rem);
+    font-size: clamp(0.82rem, 0.88vw, 0.95rem);
   }
 
   .summary-ok {
@@ -1272,53 +1428,45 @@
     color: #8f4d00;
   }
 
-  @media (max-width: 900px) {
-    .split-container {
-      flex-direction: column;
-    }
-    .preview-panel {
-      flex: 0 0 200px;
-      max-width: 100%;
-    }
-  }
-
   .table-wrapper {
     flex: 1;
     overflow: auto;
     border: 1.5px solid var(--color-border);
     border-radius: 8px;
     background: #ffffff;
+    min-height: 0;
+    -webkit-overflow-scrolling: touch;
   }
 
   .review-table {
     width: 100%;
-    min-width: 1060px;
+    min-width: 980px;
     border-collapse: collapse;
-    font-size: 0.9rem;
+    font-size: clamp(0.82rem, 0.88vw, 0.9rem);
   }
 
   .review-table th, .review-table td {
-    padding: 0.45rem 0.5rem;
+    padding: clamp(0.3rem, 0.5vh, 0.45rem) clamp(0.35rem, 0.5vw, 0.5rem);
     border-bottom: 1px solid var(--color-border);
     text-align: left;
     vertical-align: middle;
   }
 
-  .th-status { width: 36px; min-width: 36px; text-align: center; }
-  .th-designation { min-width: 240px; }
-  .th-qty { width: 75px; min-width: 75px; }
-  .th-lot { width: 110px; min-width: 110px; }
-  .th-price { width: 95px; min-width: 95px; }
-  .th-exp { width: 115px; min-width: 115px; }
-  .th-tva { width: 70px; min-width: 70px; }
-  .th-mg { width: 75px; min-width: 75px; }
-  .th-total { width: 100px; min-width: 100px; text-align: right; }
-  .th-actions { width: 45px; min-width: 45px; text-align: center; }
+  .th-status { width: 34px; min-width: 34px; text-align: center; }
+  .th-designation { min-width: 220px; }
+  .th-qty { width: 70px; min-width: 70px; }
+  .th-lot { width: 100px; min-width: 100px; }
+  .th-price { width: 90px; min-width: 90px; }
+  .th-exp { width: 110px; min-width: 110px; }
+  .th-tva { width: 65px; min-width: 65px; }
+  .th-mg { width: 70px; min-width: 70px; }
+  .th-total { width: 95px; min-width: 95px; text-align: right; }
+  .th-actions { width: 40px; min-width: 40px; text-align: center; }
 
   .status-indicator {
     display: inline-block;
-    width: 12px;
-    height: 12px;
+    width: 11px;
+    height: 11px;
     border-radius: 50%;
   }
 
@@ -1335,17 +1483,20 @@
   .raw-ocr-label {
     font-weight: 700;
     color: var(--color-text-dark);
+    word-break: break-word;
+    line-height: 1.25;
   }
 
   .candidate-select {
-    font-size: 0.85rem;
-    padding: 0.2rem;
+    font-size: clamp(0.78rem, 0.85vw, 0.85rem);
+    padding: 0.2rem 0.35rem;
     border-radius: 4px;
     border: 1px solid var(--color-border);
+    max-width: 100%;
   }
 
   .alias-checkbox {
-    font-size: 0.75rem;
+    font-size: clamp(0.72rem, 0.78vw, 0.78rem);
     color: #4a5568;
     display: flex;
     align-items: center;
@@ -1356,10 +1507,10 @@
     box-sizing: border-box;
     width: 100%;
     min-width: 0;
-    padding: 0.35rem 0.45rem;
+    padding: clamp(0.25rem, 0.5vh, 0.35rem) clamp(0.3rem, 0.5vw, 0.45rem);
     border: 1.5px solid var(--color-border);
     border-radius: 5px;
-    font-size: 0.92rem;
+    font-size: clamp(0.82rem, 0.88vw, 0.92rem);
     font-weight: 600;
     color: var(--color-text-dark);
     background: #ffffff;
@@ -1397,6 +1548,10 @@
     background: transparent;
     border: none;
     cursor: pointer;
+    padding: 0.2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .btn-delete-row img {
@@ -1408,14 +1563,24 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-top: 0.75rem;
+    padding-top: clamp(0.4rem, 0.8vh, 0.75rem);
     border-top: 1px solid var(--color-border);
-    margin-top: 0.5rem;
+    margin-top: clamp(0.35rem, 0.6vh, 0.5rem);
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    flex-shrink: 0;
   }
 
   .footer-right {
     display: flex;
-    gap: 1rem;
+    gap: clamp(0.5rem, 1vw, 1rem);
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .review-footer .btn-action {
+    padding: clamp(0.4rem, 0.8vh, 0.65rem) clamp(0.75rem, 1.2vw, 1.5rem);
+    font-size: clamp(0.85rem, 0.95vw, 1rem);
   }
 
   .badge-new {
@@ -1433,23 +1598,25 @@
     align-items: flex-end;
     gap: 0.6rem;
     margin-left: auto;
+    flex-shrink: 0;
   }
 
   .btn-gemini-ai {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
+    gap: 0.4rem;
     background-color: var(--color-secondary);
     color: #ffffff;
     border: 2px solid var(--color-secondary-hover);
-    padding: 0.5rem 1.15rem;
+    padding: clamp(0.35rem, 0.6vh, 0.45rem) clamp(0.7rem, 1vw, 1.15rem);
     border-radius: var(--border-radius);
     font-weight: 700;
-    font-size: 0.95rem;
+    font-size: clamp(0.82rem, 0.9vw, 0.95rem);
     cursor: pointer;
     box-shadow: 0 2px 4px var(--color-shadow);
     transition: all 0.15s ease-in-out;
+    white-space: nowrap;
   }
 
   .btn-gemini-ai:hover:not(:disabled) {
@@ -1485,28 +1652,6 @@
     text-align: center;
   }
 
-  .summary-details {
-    display: flex;
-    gap: 1.5rem;
-    align-items: center;
-  }
-
-  .btn-sm-gemini-fix {
-    background-color: var(--color-secondary);
-    color: #ffffff;
-    border: 1px solid var(--color-secondary-hover);
-    padding: 0.35rem 0.85rem;
-    border-radius: 6px;
-    font-size: 0.85rem;
-    font-weight: 700;
-    cursor: pointer;
-    transition: all 0.15s ease-in-out;
-  }
-
-  .btn-sm-gemini-fix:hover:not(:disabled) {
-    background-color: var(--color-secondary-hover);
-  }
-
   /* API Key Setup Modal Dialog */
   .api-key-overlay {
     position: fixed;
@@ -1527,11 +1672,13 @@
     border-radius: var(--border-radius);
     width: 90vw;
     max-width: 480px;
-    padding: 1.75rem;
+    padding: clamp(1rem, 2vw, 1.75rem);
     box-shadow: 0 8px 24px var(--color-shadow);
     display: flex;
     flex-direction: column;
     gap: 1.1rem;
+    max-height: 90vh;
+    overflow-y: auto;
   }
 
   .api-key-header {
@@ -1542,7 +1689,7 @@
 
   .api-key-header h3 {
     margin: 0;
-    font-size: 1.15rem;
+    font-size: clamp(1rem, 1.2vw, 1.15rem);
     color: #1e293b;
     font-weight: 600;
   }
@@ -1557,7 +1704,7 @@
   }
 
   .api-key-desc {
-    font-size: 0.88rem;
+    font-size: clamp(0.82rem, 0.9vw, 0.88rem);
     color: #475569;
     line-height: 1.4;
     margin: 0;
@@ -1577,10 +1724,10 @@
 
   .api-key-input {
     width: 100%;
-    padding: 0.65rem 0.85rem;
+    padding: clamp(0.45rem, 0.8vh, 0.65rem) clamp(0.65rem, 1vw, 0.85rem);
     border: 1px solid #cbd5e1;
     border-radius: 6px;
-    font-size: 0.9rem;
+    font-size: clamp(0.85rem, 0.9vw, 0.9rem);
     box-sizing: border-box;
     font-family: monospace;
   }
@@ -1598,6 +1745,7 @@
     margin-top: 0.5rem;
     border-top: 1px solid #e2e8f0;
     padding-top: 1rem;
+    flex-wrap: wrap;
   }
 
   /* Error Banner */
@@ -1605,16 +1753,17 @@
     background-color: #ffebe6;
     border: 1.5px solid var(--color-danger);
     color: var(--color-danger);
-    padding: 0.65rem 1rem;
+    padding: clamp(0.45rem, 0.8vh, 0.65rem) clamp(0.65rem, 1vw, 1rem);
     border-radius: var(--border-radius);
-    font-size: 0.92rem;
+    font-size: clamp(0.85rem, 0.9vw, 0.92rem);
     font-weight: 600;
-    margin-bottom: 1rem;
+    margin-bottom: clamp(0.5rem, 1vh, 0.85rem);
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.75rem;
     box-shadow: 0 2px 6px rgba(222, 53, 11, 0.08);
+    flex-shrink: 0;
   }
 
   .error-banner-content {
@@ -1663,6 +1812,88 @@
     color: #713f12 !important;
     box-shadow: 0 0 0 2px rgba(234, 179, 8, 0.4) !important;
     transition: background-color 0.4s ease-out, border-color 0.4s ease-out, box-shadow 0.4s ease-out !important;
+  }
+
+  /* Media Queries & Zoom Adaptations */
+  @media (max-width: 1024px) {
+    .invoice-import-modal {
+      width: 99vw;
+      height: 98vh;
+      max-height: 98vh;
+      padding: 0.6rem 0.8rem;
+    }
+
+    .split-container {
+      gap: 0.6rem;
+    }
+
+    .preview-panel {
+      flex: 0 0 clamp(160px, 20vw, 240px);
+    }
+  }
+
+  @media (max-width: 820px) {
+    .split-container {
+      flex-direction: column;
+    }
+
+    .preview-panel {
+      flex: 0 0 180px;
+      max-width: 100%;
+    }
+
+    .meta-actions {
+      margin-left: 0;
+      width: 100%;
+    }
+
+    .btn-gemini-ai {
+      width: 100%;
+    }
+
+    .review-footer {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 0.5rem;
+    }
+
+    .footer-right {
+      justify-content: flex-end;
+    }
+  }
+
+  @media (max-height: 720px) {
+    .invoice-import-modal {
+      height: 98vh;
+      max-height: 98vh;
+      padding: 0.5rem 0.75rem;
+    }
+
+    .import-header {
+      margin-bottom: 0.4rem;
+      padding-bottom: 0.35rem;
+    }
+
+    .meta-row {
+      margin-bottom: 0.4rem;
+      gap: 0.4rem;
+    }
+
+    .financial-summary {
+      margin-bottom: 0.4rem;
+      padding: 0.3rem 0.5rem;
+    }
+
+    .review-footer {
+      padding-top: 0.35rem;
+      margin-top: 0.35rem;
+    }
+  }
+
+  @media (max-height: 600px) {
+    .preview-panel {
+      flex: 0 0 140px;
+    }
   }
 </style>
 
