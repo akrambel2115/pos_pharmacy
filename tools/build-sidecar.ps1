@@ -11,7 +11,7 @@ $rootDir = (Get-Item $PSScriptRoot).Parent.FullName
 Set-Location $rootDir
 
 Write-Host "Checking / installing Python dependencies for Sidecar..." -ForegroundColor Cyan
-python -m pip install --upgrade pyinstaller rapidocr_onnxruntime pypdfium2 numpy
+python -m pip install --upgrade pyinstaller rapidocr_onnxruntime onnxruntime pypdfium2 numpy
 
 $binDir = Join-Path $rootDir "src-tauri\bin"
 if (-not (Test-Path $binDir)) {
@@ -24,7 +24,9 @@ $tempWorkDir = Join-Path $rootDir "src-tauri\build_pyinstaller"
 Write-Host "Compiling standalone OCR binary with PyInstaller..." -ForegroundColor Cyan
 python -m PyInstaller --noconfirm --clean --onefile `
     --collect-all rapidocr_onnxruntime `
+    --collect-all onnxruntime `
     --collect-all pypdfium2 `
+    --collect-all numpy `
     --distpath $binDir `
     --workpath $tempWorkDir `
     --name "invoice_extractor-x86_64-pc-windows-msvc" `

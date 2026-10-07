@@ -22,16 +22,20 @@ import urllib.request
 import urllib.error
 from typing import List, Dict, Any, Optional
 
-try:
-    import pypdfium2 as pdfium
-    from rapidocr_onnxruntime import RapidOCR
-    import numpy as np
-except ImportError as e:
-    print(json.dumps({
-        "success": False,
-        "error": f"Missing required Python dependencies: {str(e)}"
-    }))
-    sys.exit(1)
+# On Windows, ensure PyInstaller unpack directory, executable directory,
+# and current directory are in the DLL search path for onnxruntime/pdfium
+if sys.platform == "win32":
+    if hasattr(sys, "_MEIPASS"):
+        try:
+            os.add_dll_directory(sys._MEIPASS)
+        except Exception:
+            pass
+    if getattr(sys, "frozen", False):
+        try:
+            exe_dir = os.path.dirname(sys.executable)
+            os.add_dll_directory(exe_dir)
+        except Exception:
+            pass
 
 
 def clean_num(val_str: Optional[str]) -> Optional[float]:
@@ -69,6 +73,16 @@ def extract_invoice(file_path: str, output_dir: Optional[str] = None) -> Dict[st
     file_path = os.path.abspath(file_path)
     if not os.path.exists(file_path):
         return {"success": False, "error": f"Fichier introuvable: {file_path}"}
+
+    try:
+        import pypdfium2 as pdfium
+        from rapidocr_onnxruntime import RapidOCR
+        import numpy as np
+    except ImportError as e:
+        return {
+            "success": False,
+            "error": f"Le moteur OCR local requiert les bibliothèques C++ Windows. Veuillez installer le package Microsoft Visual C++ 2015-2022 Redistributable (x64) ou activer l'option 'Appliquer directement l'IA' dans les Paramètres. Détail: {str(e)}"
+        }
 
     engine = RapidOCR()
     rendered_pages = []
@@ -500,13 +514,13 @@ def extract_invoice_gemini(file_path: str, api_key: str, output_dir: Optional[st
 
     req_data = json.dumps(request_payload).encode("utf-8")
     
-    # Try available Flash models in order of capability, availability and stability
+    # Try available Flash models in order of speed, capability and stability
     models = [
-        "gemini-3.8-flash",
-        "gemini-3.7-flash",
+        "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
-        "gemini-flash-latest",
-        "gemini-3.6-flash",
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
     ]
     last_error = ""
 
@@ -672,11 +686,11 @@ def test_gemini_key(api_key: str) -> Dict[str, Any]:
         return {"success": False, "error": "Veuillez saisir une clé API."}
 
     test_models = [
-        "gemini-3.8-flash",
-        "gemini-3.7-flash",
+        "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
-        "gemini-flash-latest",
-        "gemini-3.6-flash",
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
     ]
     last_err = ""
     for model_name in test_models:
@@ -768,11 +782,11 @@ def ai_match_medicines(items_to_match: list, api_key: str) -> Dict[str, Any]:
     req_data = json.dumps(request_payload).encode("utf-8")
 
     models = [
-        "gemini-3.8-flash",
-        "gemini-3.7-flash",
+        "gemini-3.5-flash-lite",
         "gemini-3.1-flash-lite",
-        "gemini-flash-latest",
-        "gemini-3.6-flash",
+        "gemini-flash-lite-latest",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
     ]
     last_error = ""
 

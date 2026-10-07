@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "0.2.2"
+version = "0.2.3"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -32,6 +32,7 @@ rfd = "0.17.2"
 p256 = { version = "0.13", features = ["ecdsa"] }
 sha2 = "0.10"
 base64 = "0.22"
+ureq = { version = "3.4.2", features = ["json"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"

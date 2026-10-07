@@ -8,6 +8,7 @@ use argon2::{
 use rusqlite::params;
 use tauri::{State, Manager};
 use crate::db::DbState;
+use base64::prelude::*;
 use std::process::Command;
 
 // Database Structures
@@ -1968,6 +1969,7 @@ pub struct AiMatchDecision {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[allow(dead_code)]
 pub struct AiMatchResponse {
     pub success: bool,
     pub error: Option<String>,
@@ -2123,6 +2125,10 @@ fn resolve_extractor_command() -> Result<Command, String> {
                 exe_dir.join("invoice_extractor-x86_64-pc-windows-msvc.exe"),
                 exe_dir.join("bin").join("invoice_extractor.exe"),
                 exe_dir.join("bin").join("invoice_extractor-x86_64-pc-windows-msvc.exe"),
+                exe_dir.join("resources").join("invoice_extractor.exe"),
+                exe_dir.join("resources").join("invoice_extractor-x86_64-pc-windows-msvc.exe"),
+                exe_dir.join("resources").join("bin").join("invoice_extractor.exe"),
+                exe_dir.join("..").join("invoice_extractor.exe"),
             ];
             for candidate in candidates {
                 if candidate.exists() {
@@ -2165,7 +2171,7 @@ fn resolve_extractor_command() -> Result<Command, String> {
         return Ok(cmd);
     }
 
-    Err("Le module d'analyse des factures (invoice_extractor) est introuvable. Veuillez réinstaller l'application.".into())
+    Err("Le module d'analyse locale (invoice_extractor) est introuvable.".into())
 }
 
 #[tauri::command]
@@ -2191,21 +2197,37 @@ pub fn scan_and_extract_invoice(
     let cache_dir = app_dir.join("invoice_render_cache");
     let _ = std::fs::create_dir_all(&cache_dir);
 
-    let mut cmd = resolve_extractor_command()?;
+    let mut cmd = match resolve_extractor_command() {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(format!(
+                "{}\n\nConseil : Activez l'option 'Appliquer directement l'IA (Désactiver l'OCR hors ligne)' dans les Paramètres pour analyser directement avec Gemini sans avoir besoin de Python.",
+                e
+            ));
+        }
+    };
     let output = cmd
         .arg(&pdf_path)
         .arg(&cache_dir)
         .output()
-        .map_err(|e| format!("Failed to execute invoice extractor: {}", e))?;
+        .map_err(|e| format!("Impossible d'exécuter le moteur OCR: {}.\n\nConseil : Activez 'Appliquer directement l'IA' dans les Paramètres.", e))?;
 
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Extractor execution failed: {}", err_msg));
+        let out_msg = String::from_utf8_lossy(&output.stdout);
+        let detail = if !err_msg.trim().is_empty() {
+            err_msg.to_string()
+        } else if !out_msg.trim().is_empty() {
+            out_msg.to_string()
+        } else {
+            "Le moteur OCR s'est arrêté inopinément.".to_string()
+        };
+        return Err(format!("Échec de l'analyse OCR locale : {}\n\nConseil : Vous pouvez activer l'option 'Appliquer directement l'IA' dans Paramètres.", detail.trim()));
     }
 
     let stdout_str = String::from_utf8_lossy(&output.stdout);
     let payload: ExtractedInvoicePayload = serde_json::from_str(&stdout_str)
-        .map_err(|e| format!("Invalid extractor JSON output ({}): {}", e, stdout_str))?;
+        .map_err(|e| format!("Erreur lors de la lecture des données extraites : {}", e))?;
 
     Ok(payload)
 }
@@ -2249,6 +2271,140 @@ pub fn delete_gemini_api_key(state: State<'_, DbState>) -> Result<(), String> {
     Ok(())
 }
 
+const GEMINI_MODELS: &[&str] = &[
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash",
+];
+
+fn call_gemini_api(
+    api_key: &str,
+    prompt: &str,
+    pdf_base64: Option<&str>,
+) -> Result<String, String> {
+    let mut parts = vec![serde_json::json!({ "text": prompt })];
+    if let Some(b64) = pdf_base64 {
+        parts.push(serde_json::json!({
+            "inline_data": {
+                "mime_type": "application/pdf",
+                "data": b64
+            }
+        }));
+    }
+
+    let request_body = serde_json::json!({
+        "contents": [{
+            "parts": parts
+        }],
+        "generationConfig": {
+            "response_mime_type": "application/json",
+            "temperature": 0.1
+        }
+    });
+
+    let mut last_error = String::from("Échec de connexion au service d'analyse IA.");
+
+    for model_name in GEMINI_MODELS {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            model_name, api_key
+        );
+
+        match ureq::post(&url)
+            .header("Content-Type", "application/json")
+            .send_json(&request_body)
+        {
+            Ok(mut resp) => {
+                let resp_json: serde_json::Value = resp
+                    .body_mut()
+                    .read_json()
+                    .map_err(|e| format!("Erreur lors de la lecture de la réponse IA: {}", e))?;
+
+                if let Some(candidates) = resp_json.get("candidates").and_then(|c| c.as_array()) {
+                    if let Some(first_cand) = candidates.first() {
+                        if let Some(parts) = first_cand.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
+                            if let Some(first_part) = parts.first() {
+                                if let Some(text) = first_part.get("text").and_then(|t| t.as_str()) {
+                                    let mut clean_text = text.trim();
+                                    if clean_text.starts_with("```json") {
+                                        clean_text = clean_text.trim_start_matches("```json").trim();
+                                    } else if clean_text.starts_with("```") {
+                                        clean_text = clean_text.trim_start_matches("```").trim();
+                                    }
+                                    if clean_text.ends_with("```") {
+                                        clean_text = clean_text.trim_end_matches("```").trim();
+                                    }
+                                    return Ok(clean_text.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                last_error = "Aucune donnée n'a été renvoyée par le service d'analyse IA.".to_string();
+            }
+            Err(ureq::Error::StatusCode(code)) => {
+                if code == 400 || code == 403 {
+                    return Err("Clé API invalide ou non autorisée. Veuillez vérifier votre clé dans les Paramètres.".into());
+                } else if code == 429 {
+                    last_error = "Quota de requêtes dépassé. Veuillez patienter quelques instants avant de réessayer.".into();
+                } else if code == 503 {
+                    last_error = "Le service d'analyse IA est momentanément surchargé. Veuillez réessayer dans quelques instants.".into();
+                } else if code == 404 {
+                    last_error = "Le modèle d'IA sélectionné est temporairement indisponible.".into();
+                } else {
+                    last_error = format!("Erreur du service IA (code {}).", code);
+                }
+            }
+            Err(e) => {
+                last_error = format!("Impossible de joindre le service IA: {}", e);
+            }
+        }
+    }
+
+    Err(last_error)
+}
+
+fn parse_f64_val(val: Option<&serde_json::Value>) -> f64 {
+    match val {
+        Some(serde_json::Value::Number(n)) => n.as_f64().unwrap_or(0.0),
+        Some(serde_json::Value::String(s)) => {
+            let cleaned = s.replace(' ', "").replace(',', ".").replace("DA", "").replace("da", "").replace('%', "");
+            cleaned.parse::<f64>().unwrap_or(0.0)
+        }
+        _ => 0.0,
+    }
+}
+
+fn parse_i32_val(val: Option<&serde_json::Value>) -> i32 {
+    match val {
+        Some(serde_json::Value::Number(n)) => n.as_i64().unwrap_or(1) as i32,
+        Some(serde_json::Value::String(s)) => {
+            let cleaned: String = s.chars().filter(|c| c.is_ascii_digit() || *c == '-').collect();
+            cleaned.parse::<i32>().unwrap_or(1)
+        }
+        _ => 1,
+    }
+}
+
+fn normalize_expiry_date(exp: &str) -> String {
+    let trimmed = exp.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<&str> = trimmed.split(['/', '-', '.']).collect();
+    if parts.len() == 2 {
+        if let (Ok(m), Ok(y)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+            let full_year = if y < 100 { 2000 + y } else { y };
+            if (1..=12).contains(&m) && (2024..=2045).contains(&full_year) {
+                return format!("{:04}-{:02}-28", full_year, m);
+            }
+        }
+    }
+    trimmed.to_string()
+}
+
 #[tauri::command]
 pub fn test_gemini_api_key(
     api_key: Option<String>,
@@ -2275,29 +2431,20 @@ pub fn test_gemini_api_key(
         return Err("Veuillez saisir votre clé API.".into());
     }
 
-    let mut cmd = resolve_extractor_command()?;
-    let output = cmd
-        .arg("--test-key")
-        .arg(&final_key)
-        .output()
-        .map_err(|e| format!("Impossible d'exécuter la vérification : {}", e))?;
+    call_gemini_api(
+        &final_key,
+        "Réponds uniquement au format JSON: {\"success\": true, \"message\": \"Clé API valide et opérationnelle !\"}",
+        None,
+    )?;
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let payload: serde_json::Value = serde_json::from_str(&stdout_str)
-        .map_err(|e| format!("Réponse inattendue : {}", e))?;
-
-    if payload["success"].as_bool().unwrap_or(false) {
-        Ok(payload["message"].as_str().unwrap_or("Clé API valide et opérationnelle !").to_string())
-    } else {
-        Err(payload["error"].as_str().unwrap_or("Échec de vérification de la clé API.").to_string())
-    }
+    Ok("Clé API valide et opérationnelle !".into())
 }
 
 #[tauri::command]
 pub fn extract_invoice_with_gemini(
     pdf_path: String,
     api_key: Option<String>,
-    app_handle: tauri::AppHandle,
+    _app_handle: tauri::AppHandle,
     state: State<'_, DbState>,
 ) -> Result<ExtractedInvoicePayload, String> {
     let final_key = match api_key.filter(|k| !k.trim().is_empty()) {
@@ -2321,39 +2468,139 @@ pub fn extract_invoice_with_gemini(
         return Err("Clé API non configurée. Veuillez renseigner votre clé API dans les Paramètres.".into());
     }
 
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Impossible d'accéder au dossier de données : {}", e))?;
-    let cache_dir = app_dir.join("invoice_render_cache");
-    let _ = std::fs::create_dir_all(&cache_dir);
+    let pdf_bytes = std::fs::read(&pdf_path)
+        .map_err(|e| format!("Impossible de lire le fichier: {}", e))?;
+    let b64_pdf = BASE64_STANDARD.encode(&pdf_bytes);
 
-    let mut cmd = resolve_extractor_command()?;
-    let output = cmd
-        .arg(&pdf_path)
-        .arg(&cache_dir)
-        .arg("--gemini-key")
-        .arg(&final_key)
-        .output()
-        .map_err(|e| format!("Impossible de lancer le module d'analyse : {}", e))?;
+    let prompt_text = "\
+Tu es un expert en facturation pharmaceutique en Algérie (grossistes répartiteurs: \
+Millennium Medic, Pharma Spot, Setif Medic, Biopharm, CPA, etc.).\n\
+Analyse attentivement cette facture d'achat de médicaments et extrait rigoureusement \
+les métadonnées et toutes les lignes d'articles de la facture.\n\n\
+Format de sortie JSON obligatoire et strict:\n\
+{\n\
+  \"supplier\": \"Nom du grossiste\",\n\
+  \"invoice_number\": \"N° Facture ou N° BL\",\n\
+  \"invoice_date\": \"YYYY-MM-DD\",\n\
+  \"total_brut\": 0.0,\n\
+  \"discount\": 0.0,\n\
+  \"grand_total\": 0.0,\n\
+  \"items\": [\n\
+    {\n\
+      \"raw_designation\": \"Nom complet du médicament avec dosage et forme (ex: DOLIPRANE 1000MG CPR)\",\n\
+      \"quantity\": 10,\n\
+      \"batch_number\": \"Numéro de Lot (ex: 23H091)\",\n\
+      \"expiry_date\": \"YYYY-MM-DD\",\n\
+      \"ppa_da\": 250.0,\n\
+      \"cost_price_da\": 180.0,\n\
+      \"tva\": 0.0,\n\
+      \"mg\": 20.0,\n\
+      \"total_da\": 1800.0\n\
+    }\n\
+  ]\n\
+}\n\n\
+Règles impératives:\n\
+1. Extraire TOUTES les lignes de médicaments du tableau, sans en omettre aucune.\n\
+2. raw_designation : nom complet avec dosage et forme.\n\
+3. quantity : nombre de boîtes facturées (QTE).\n\
+4. batch_number : numéro de lot.\n\
+5. expiry_date : date d'expiration exacte au format YYYY-MM-DD (ex: 11/27 -> 2027-11-28).\n\
+6. ppa_da : Prix Public Algérien (PPA / P.Vente), toujours supérieur au prix d'achat PUHT.\n\
+7. cost_price_da : Prix Unitaire Hors Taxe (PUHT / P.U.Ht / P.Achat).\n\
+8. tva : Taux de TVA (0.0, 9.0 ou 19.0). Si exonéré ou 0, tva = 0.0.\n\
+9. mg : Marge bénéficiaire (MG / Mge / Marge). Si absente ou 0, calculer: ((ppa_da - cost_price_da * (1 + tva/100)) / (cost_price_da * (1 + tva/100))) * 100.\n\
+10. total_da = quantity * cost_price_da.\n\
+11. total_brut : Montant total brut HT des articles avant remise.\n\
+12. discount : Montant de la remise globale / ristourne, sinon 0.0.\n\
+13. grand_total : Montant Net à Payer (Total TTC ou Net HT).\n\
+14. Renvoie UNIQUEMENT le JSON valide sans texte additionnel.";
 
-    if !output.status.success() {
-        let err_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Échec de l'analyse : {}", err_msg));
+    let json_text = call_gemini_api(&final_key, prompt_text, Some(&b64_pdf))?;
+    let parsed: serde_json::Value = serde_json::from_str(&json_text)
+        .map_err(|e| format!("Erreur d'analyse JSON du résultat IA: {}", e))?;
+
+    let mut items = Vec::new();
+    let raw_items_opt = parsed.get("items")
+        .or_else(|| parsed.get("medicaments"))
+        .or_else(|| parsed.get("articles"))
+        .or_else(|| parsed.get("data"))
+        .and_then(|v| v.as_array());
+
+    if let Some(arr) = raw_items_opt {
+        for it in arr {
+            let desig = it.get("raw_designation").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if desig.is_empty() {
+                continue;
+            }
+            let qty = parse_i32_val(it.get("quantity")).max(1);
+            let lot = it.get("batch_number").and_then(|v| v.as_str()).unwrap_or("LOT-AUTO").trim();
+            let raw_exp = it.get("expiry_date").and_then(|v| v.as_str()).unwrap_or("").trim();
+            let exp = normalize_expiry_date(raw_exp);
+
+            let mut puht = parse_f64_val(it.get("cost_price_da").or_else(|| it.get("unit_price_da")));
+            let mut ppa = parse_f64_val(it.get("ppa_da"));
+            if puht > 0.0 && ppa > 0.0 && puht > ppa {
+                std::mem::swap(&mut puht, &mut ppa);
+            }
+            let tva = parse_f64_val(it.get("tva"));
+            let mut mg = parse_f64_val(it.get("mg"));
+            if mg == 0.0 && puht > 0.0 && ppa > puht {
+                let base = if tva > 0.0 { puht * (1.0 + tva / 100.0) } else { puht };
+                mg = ((ppa - base) / base * 100.0 * 10.0).round() / 10.0;
+            }
+            let total = it.get("total_da")
+                .map(|v| parse_f64_val(Some(v)))
+                .unwrap_or_else(|| (qty as f64) * puht);
+            let math_verified = (total - (qty as f64) * puht).abs() <= 0.5;
+
+            items.push(ExtractedRawItem {
+                raw_designation: desig.to_string(),
+                batch_number: if lot.is_empty() { "LOT-AUTO".to_string() } else { lot.to_string() },
+                expiry_date: exp,
+                quantity: qty,
+                unit_price_da: (puht * 100.0).round() / 100.0,
+                ppa_da: (ppa * 100.0).round() / 100.0,
+                total_da: (total * 100.0).round() / 100.0,
+                math_verified,
+                page_index: 0,
+                tva: Some(tva),
+                mg: Some(mg),
+            });
+        }
     }
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let payload: ExtractedInvoicePayload = serde_json::from_str(&stdout_str)
-        .map_err(|e| format!("Erreur de lecture des données extraites : {}", e))?;
+    let supplier = parsed.get("supplier").and_then(|v| v.as_str()).unwrap_or("Grossiste Pharmacie").to_string();
+    let invoice_number = parsed.get("invoice_number").and_then(|v| v.as_str()).unwrap_or("AUTO-INV").to_string();
+    let invoice_date = parsed.get("invoice_date").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let total_brut = parse_f64_val(parsed.get("total_brut"));
+    let mut grand_total = parse_f64_val(parsed.get("grand_total"));
 
-    Ok(payload)
+    let items_sum: f64 = items.iter().map(|i| i.total_da).sum();
+    if grand_total == 0.0 && !items.is_empty() {
+        grand_total = (items_sum * 100.0).round() / 100.0;
+    }
+
+    let pdf_data_url = format!("data:application/pdf;base64,{}", b64_pdf);
+
+    Ok(ExtractedInvoicePayload {
+        success: true,
+        error: None,
+        supplier: Some(supplier),
+        invoice_number: Some(invoice_number),
+        invoice_date: Some(invoice_date),
+        total_ht: Some((total_brut * 100.0).round() / 100.0),
+        discount: Some(0.0),
+        grand_total: Some((grand_total * 100.0).round() / 100.0),
+        pages_rendered: Some(vec![pdf_data_url]),
+        items: Some(items),
+    })
 }
 
 #[tauri::command]
 pub fn ai_match_invoice_drugs(
     items: Vec<AiItemMatchInput>,
     api_key: Option<String>,
-    app_handle: tauri::AppHandle,
+    _app_handle: tauri::AppHandle,
     state: State<'_, DbState>,
 ) -> Result<Vec<AiMatchDecision>, String> {
     if items.is_empty() {
@@ -2381,48 +2628,40 @@ pub fn ai_match_invoice_drugs(
         return Err("Clé API manquante. Veuillez configurer votre clé dans les Paramètres.".into());
     }
 
-    let app_dir = app_handle
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
-    let _ = std::fs::create_dir_all(&app_dir);
-    let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
-    let temp_file = app_dir.join(format!("temp_match_{}.json", millis));
     let payload_json = serde_json::to_string(&items).map_err(|e| e.to_string())?;
-    std::fs::write(&temp_file, payload_json).map_err(|e| format!("Failed to write temp match payload: {}", e))?;
+    let prompt_text = format!(
+        "Tu es un pharmacien expert. Associe chaque médicament extrait de la facture à la liste des médicaments candidats de notre catalogue.\n\
+        Données d'entrée (format JSON):\n{}\n\n\
+        Format de sortie JSON obligatoire et strict:\n\
+        {{\n  \"decisions\": [\n    {{\n      \"index\": 0,\n      \"is_new_drug\": false,\n      \"matched_drug_id\": 123,\n      \"reason\": \"Correspondance exacte\"\n    }}\n  ]\n}}\n\
+        Règles:\n\
+        - Si un candidat correspond fidèlement (même nom de molécule, même forme, même dosage), associe-le avec son matched_drug_id et is_new_drug = false.\n\
+        - Si aucun candidat ne correspond ou s'il y a un doute significatif, is_new_drug = true et matched_drug_id = null.\n\
+        - Renvoie UNIQUEMENT le JSON valide sans texte additionnel.",
+        payload_json
+    );
 
-    // Always go through the bundled standalone extractor (no Python needed on client PCs).
-    let mut cmd = match resolve_extractor_command() {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = std::fs::remove_file(&temp_file);
-            return Err(e);
+    let json_text = call_gemini_api(&final_key, &prompt_text, None)?;
+    let parsed: serde_json::Value = serde_json::from_str(&json_text)
+        .map_err(|e| format!("Erreur d'analyse de la réponse IA: {}", e))?;
+
+    let mut decisions = Vec::new();
+    if let Some(arr) = parsed.get("decisions").and_then(|v| v.as_array()) {
+        for d in arr {
+            let idx = parse_i32_val(d.get("index")) as usize;
+            let is_new = d.get("is_new_drug").and_then(|v| v.as_bool()).unwrap_or(true);
+            let matched_id = d.get("matched_drug_id").and_then(|v| v.as_i64());
+            let reason = d.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string());
+            decisions.push(AiMatchDecision {
+                index: idx,
+                is_new_drug: is_new,
+                matched_drug_id: matched_id,
+                reason,
+            });
         }
-    };
-    let output = cmd
-        .arg("--match-drugs")
-        .arg(&temp_file)
-        .arg("--gemini-key")
-        .arg(&final_key)
-        .output()
-        .map_err(|e| format!("Failed to launch AI drug matcher: {}", e))?;
-
-    let _ = std::fs::remove_file(&temp_file);
-
-    if !output.status.success() {
-        let err_msg = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("Échec de l'association IA : {}", err_msg));
     }
 
-    let stdout_str = String::from_utf8_lossy(&output.stdout);
-    let resp: AiMatchResponse = serde_json::from_str(&stdout_str)
-        .map_err(|e| format!("Erreur de lecture de la décision IA ({}): {}", e, stdout_str))?;
-
-    if !resp.success {
-        return Err(resp.error.unwrap_or_else(|| "Échec de l'association IA des médicaments.".into()));
-    }
-
-    Ok(resp.decisions.unwrap_or_default())
+    Ok(decisions)
 }
 
 #[tauri::command]

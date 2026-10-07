@@ -790,13 +790,21 @@
             aria-label="Aperçu PDF déplaçable"
           >
             {#if renderedPages.length > 0}
-              <img 
-                src={renderedPages[currentPreviewPageIndex]} 
-                alt="Page de Facture" 
-                style="transform: translate({previewPanX}px, {previewPanY}px) scale({previewZoom}); transform-origin: top center;"
-                class="scanned-image"
-                draggable="false"
-              />
+              {#if renderedPages[currentPreviewPageIndex]?.startsWith('data:application/pdf')}
+                <iframe 
+                  src={renderedPages[currentPreviewPageIndex]} 
+                  title="Aperçu Facture PDF"
+                  style="width: 100%; height: 100%; border: none; min-height: 550px; background: #fff;"
+                ></iframe>
+              {:else}
+                <img 
+                  src={renderedPages[currentPreviewPageIndex]} 
+                  alt="Page de Facture" 
+                  style="transform: translate({previewPanX}px, {previewPanY}px) scale({previewZoom}); transform-origin: top center;"
+                  class="scanned-image"
+                  draggable="false"
+                />
+              {/if}
             {:else}
               <p class="no-preview">Aucun aperçu disponible</p>
             {/if}
