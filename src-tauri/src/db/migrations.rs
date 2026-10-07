@@ -22,6 +22,7 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN cashier_permissions TEXT NOT NULL DEFAULT '{}';", []);
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN pharmacy_name TEXT NOT NULL DEFAULT '';", []);
     let _ = conn.execute("ALTER TABLE settings ADD COLUMN pharmacy_address TEXT NOT NULL DEFAULT '';", []);
+    let _ = conn.execute("ALTER TABLE settings ADD COLUMN direct_ai_invoice INTEGER NOT NULL DEFAULT 0;", []);
 
     // Populate default settings row if missing
     let count: i64 = conn.query_row(

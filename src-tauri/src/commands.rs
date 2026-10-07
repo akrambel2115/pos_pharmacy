@@ -88,6 +88,8 @@ pub struct AppSettings {
     pub pharmacy_name: Option<String>,
     #[serde(default)]
     pub pharmacy_address: Option<String>,
+    #[serde(default)]
+    pub direct_ai_invoice: Option<bool>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
@@ -218,7 +220,7 @@ pub fn get_settings(state: State<'_, DbState>) -> Result<AppSettings, String> {
     let conn = state.conn.lock().map_err(|_| "Failed to lock database connection")?;
     
     let settings = conn.query_row(
-        "SELECT expiry_warning_days, default_language, last_backup_at, COALESCE(cashier_permissions, '{}'), COALESCE(pharmacy_name, ''), COALESCE(pharmacy_address, '') FROM settings WHERE id = 1;",
+        "SELECT expiry_warning_days, default_language, last_backup_at, COALESCE(cashier_permissions, '{}'), COALESCE(pharmacy_name, ''), COALESCE(pharmacy_address, ''), COALESCE(direct_ai_invoice, 0) FROM settings WHERE id = 1;",
         [],
         |row| Ok(AppSettings {
             expiry_warning_days: row.get(0)?,
@@ -227,6 +229,7 @@ pub fn get_settings(state: State<'_, DbState>) -> Result<AppSettings, String> {
             cashier_permissions: Some(row.get(3)?),
             pharmacy_name: Some(row.get(4)?),
             pharmacy_address: Some(row.get(5)?),
+            direct_ai_invoice: Some(row.get::<_, i32>(6)? == 1),
         })
     ).map_err(|e| format!("Failed to fetch settings: {}", e))?;
     
@@ -241,6 +244,7 @@ pub fn update_settings(
     cashier_permissions: Option<String>,
     pharmacy_name: Option<String>,
     pharmacy_address: Option<String>,
+    direct_ai_invoice: Option<bool>,
 ) -> Result<(), String> {
     let conn = state.conn.lock().map_err(|_| "Failed to lock database connection")?;
     
@@ -263,6 +267,13 @@ pub fn update_settings(
             "UPDATE settings SET pharmacy_address = ?1 WHERE id = 1;",
             params![addr],
         ).map_err(|e| format!("Failed to update pharmacy address: {}", e))?;
+    }
+
+    if let Some(direct_ai) = direct_ai_invoice {
+        conn.execute(
+            "UPDATE settings SET direct_ai_invoice = ?1 WHERE id = 1;",
+            params![if direct_ai { 1 } else { 0 }],
+        ).map_err(|e| format!("Failed to update direct AI invoice setting: {}", e))?;
     }
 
     conn.execute(
@@ -2075,6 +2086,7 @@ use std::os::windows::process::CommandExt;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+#[cfg(debug_assertions)]
 fn resolve_python_path() -> String {
     let specific_python = std::path::Path::new("C:\\Python313\\python.exe");
     if specific_python.exists() {
@@ -2083,6 +2095,7 @@ fn resolve_python_path() -> String {
     "python".to_string()
 }
 
+#[cfg(debug_assertions)]
 fn resolve_engine_script() -> Result<std::path::PathBuf, String> {
     let direct_path = std::path::PathBuf::from("e:/pos_pharmacy/src-tauri/engine/invoice_extractor.py");
     if direct_path.exists() {
@@ -2140,7 +2153,9 @@ fn resolve_extractor_command() -> Result<Command, String> {
         }
     }
 
-    // 3. Fallback to Python script (for local development when binary is not built)
+    // 3. Fallback to Python script — DEVELOPMENT ONLY.
+    // Release builds must never depend on a system Python installation.
+    #[cfg(debug_assertions)]
     if let Ok(script_path) = resolve_engine_script() {
         let python_exe = resolve_python_path();
         let mut cmd = Command::new(python_exe);
@@ -2150,7 +2165,7 @@ fn resolve_extractor_command() -> Result<Command, String> {
         return Ok(cmd);
     }
 
-    Err("Neither the standalone invoice_extractor binary nor the Python script was found.".into())
+    Err("Le module d'analyse des factures (invoice_extractor) est introuvable. Veuillez réinstaller l'application.".into())
 }
 
 #[tauri::command]
@@ -2366,20 +2381,25 @@ pub fn ai_match_invoice_drugs(
         return Err("Clé API manquante. Veuillez configurer votre clé dans les Paramètres.".into());
     }
 
-    let python_exe = resolve_python_path();
-    let script_path = resolve_engine_script()?;
-
     let app_dir = app_handle
         .path()
         .app_data_dir()
         .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let _ = std::fs::create_dir_all(&app_dir);
     let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
     let temp_file = app_dir.join(format!("temp_match_{}.json", millis));
     let payload_json = serde_json::to_string(&items).map_err(|e| e.to_string())?;
     std::fs::write(&temp_file, payload_json).map_err(|e| format!("Failed to write temp match payload: {}", e))?;
 
-    let output = Command::new(python_exe)
-        .arg(&script_path)
+    // Always go through the bundled standalone extractor (no Python needed on client PCs).
+    let mut cmd = match resolve_extractor_command() {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = std::fs::remove_file(&temp_file);
+            return Err(e);
+        }
+    };
+    let output = cmd
         .arg("--match-drugs")
         .arg(&temp_file)
         .arg("--gemini-key")

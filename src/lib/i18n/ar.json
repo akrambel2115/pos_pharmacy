@@ -164,6 +164,8 @@
   "testingAiKey": "جاري اختبار الاتصال...",
   "aiKeyDeletedSuccess": "تم حذف مفتاح API بنجاح.",
   "aiKeySavedSuccess": "تم حفظ مفتاح API بنجاح.",
+  "directAiInvoiceLabel": "استخدام الذكاء الاصطناعي مباشرة (تعطيل المسح المحلي OCR)",
+  "directAiInvoiceDesc": "عند استيراد فاتورة PDF، تجاوز المسح المحلي واستخراج الأدوية والأسعار مباشرة باستخدام الذكاء الاصطناعي Gemini.",
   "showKey": "إظهار",
   "hideKey": "إخفاء",
   "invoices": "الفواتير",

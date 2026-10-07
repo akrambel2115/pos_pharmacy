@@ -164,6 +164,8 @@
   "testingAiKey": "Test de connexion en cours...",
   "aiKeyDeletedSuccess": "Clé API supprimée avec succès.",
   "aiKeySavedSuccess": "Clé API enregistrée avec succès.",
+  "directAiInvoiceLabel": "Appliquer directement l'IA (Désactiver l'OCR hors ligne)",
+  "directAiInvoiceDesc": "Lors de l'import d'une facture PDF, ignorer le scan OCR local et extraire directement les médicaments et prix avec l'intelligence artificielle Gemini.",
   "showKey": "Afficher",
   "hideKey": "Masquer",
   "invoices": "Factures",

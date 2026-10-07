@@ -33,6 +33,7 @@
   let geminiKey = $state("");
   let showGeminiKey = $state(false);
   let savedGeminiKey = $state("");
+  let directAiInvoice = $state(false);
   let aiKeySuccess = $state("");
   let aiKeyError = $state("");
   let isTestingKey = $state(false);
@@ -45,6 +46,7 @@
       lastBackupAt = settings.last_backup_at;
       pharmacyName = settings.pharmacy_name || "";
       pharmacyAddress = settings.pharmacy_address || "";
+      directAiInvoice = !!settings.direct_ai_invoice;
       
       // Ensure local translation state is aligned
       langState.setLanguage(defaultLanguage as any);
@@ -88,8 +90,30 @@
     aiKeySuccess = "";
     aiKeyError = "";
     try {
-      await invoke("save_gemini_api_key", { apiKey: geminiKey.trim() });
-      savedGeminiKey = geminiKey.trim();
+      if (geminiKey.trim()) {
+        await invoke("save_gemini_api_key", { apiKey: geminiKey.trim() });
+        savedGeminiKey = geminiKey.trim();
+      }
+      await invoke("update_settings", {
+        expiryWarningDays,
+        defaultLanguage,
+        directAiInvoice,
+      });
+      aiKeySuccess = t("aiKeySavedSuccess");
+    } catch (err: any) {
+      aiKeyError = err.toString();
+    }
+  }
+
+  async function handleToggleDirectAi(e: Event) {
+    const checked = (e.target as HTMLInputElement).checked;
+    directAiInvoice = checked;
+    try {
+      await invoke("update_settings", {
+        expiryWarningDays,
+        defaultLanguage,
+        directAiInvoice: checked,
+      });
       aiKeySuccess = t("aiKeySavedSuccess");
     } catch (err: any) {
       aiKeyError = err.toString();
@@ -141,6 +165,7 @@
         defaultLanguage,
         pharmacyName: pharmacyName.trim(),
         pharmacyAddress: pharmacyAddress.trim(),
+        directAiInvoice,
       });
       langState.setLanguage(defaultLanguage as any);
       settingsSuccess = "Paramètres enregistrés / تم حفظ الإعدادات";
@@ -445,6 +470,20 @@
             </button>
           </div>
         </div>
+
+        <!-- Direct AI invoice import option -->
+        <label class="perm-switch-row">
+          <div class="perm-info">
+            <span class="perm-label">{t("directAiInvoiceLabel")}</span>
+            <span class="perm-desc">{t("directAiInvoiceDesc")}</span>
+          </div>
+          <input 
+            type="checkbox" 
+            checked={directAiInvoice} 
+            onchange={handleToggleDirectAi} 
+            class="pos-toggle" 
+          />
+        </label>
 
         <div class="ai-actions-row">
           <button type="submit" class="btn-action btn-action-primary">
