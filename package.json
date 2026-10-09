@@ -1,6 +1,6 @@
 {
   "name": "tauri-app",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "",
   "type": "module",
   "scripts": {
@@ -19,7 +19,8 @@
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2.4.0",
     "@tauri-apps/plugin-updater": "^2.13.1",
-    "jsbarcode": "^3.12.3"
+    "jsbarcode": "^3.12.3",
+    "pdfjs-dist": "4.10.38"
   },
   "devDependencies": {
     "@sveltejs/adapter-static": "^3.0.6",
