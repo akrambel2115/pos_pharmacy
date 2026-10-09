@@ -1931,6 +1931,10 @@ pub struct ExtractedInvoicePayload {
     pub invoice_date: Option<String>,
     pub total_ht: Option<f64>,
     pub discount: Option<f64>,
+    #[serde(default)]
+    pub total_tva: Option<f64>,
+    #[serde(default)]
+    pub timbre: Option<f64>,
     pub grand_total: Option<f64>,
     pub pages_rendered: Option<Vec<String>>,
     pub items: Option<Vec<ExtractedRawItem>>,
@@ -2272,10 +2276,11 @@ pub fn delete_gemini_api_key(state: State<'_, DbState>) -> Result<(), String> {
 }
 
 const GEMINI_MODELS: &[&str] = &[
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-flash-lite-latest",
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
     "gemini-3.5-flash",
+    "gemini-flash-latest",
+    "gemini-2.5-pro",
     "gemini-2.5-flash",
 ];
 
@@ -2395,10 +2400,30 @@ fn normalize_expiry_date(exp: &str) -> String {
     }
     let parts: Vec<&str> = trimmed.split(['/', '-', '.']).collect();
     if parts.len() == 2 {
-        if let (Ok(m), Ok(y)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
-            let full_year = if y < 100 { 2000 + y } else { y };
-            if (1..=12).contains(&m) && (2024..=2045).contains(&full_year) {
-                return format!("{:04}-{:02}-28", full_year, m);
+        if let (Ok(p1), Ok(p2)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+            // Case 1: MM / YY or MM / YYYY
+            if (1..=12).contains(&p1) {
+                let full_year = if p2 < 100 { 2000 + p2 } else { p2 };
+                if (2024..=2050).contains(&full_year) {
+                    return format!("{:04}-{:02}-01", full_year, p1);
+                }
+            }
+            // Case 2: YYYY / MM or YY / MM
+            let full_year = if p1 < 100 { 2000 + p1 } else { p1 };
+            if (2024..=2050).contains(&full_year) && (1..=12).contains(&p2) {
+                return format!("{:04}-{:02}-01", full_year, p2);
+            }
+        }
+    } else if parts.len() == 3 {
+        if let (Ok(p1), Ok(p2), Ok(p3)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>(), parts[2].parse::<u32>()) {
+            // YYYY-MM-DD
+            if (2024..=2050).contains(&p1) && (1..=12).contains(&p2) && (1..=31).contains(&p3) {
+                return format!("{:04}-{:02}-{:02}", p1, p2, p3);
+            }
+            // DD-MM-YYYY or DD-MM-YY
+            let full_year = if p3 < 100 { 2000 + p3 } else { p3 };
+            if (1..=31).contains(&p1) && (1..=12).contains(&p2) && (2024..=2050).contains(&full_year) {
+                return format!("{:04}-{:02}-{:02}", full_year, p2, p1);
             }
         }
     }
@@ -2484,6 +2509,8 @@ Format de sortie JSON obligatoire et strict:\n\
   \"invoice_date\": \"YYYY-MM-DD\",\n\
   \"total_brut\": 0.0,\n\
   \"discount\": 0.0,\n\
+  \"total_tva\": 0.0,\n\
+  \"timbre\": 0.0,\n\
   \"grand_total\": 0.0,\n\
   \"items\": [\n\
     {\n\
@@ -2504,16 +2531,18 @@ Règles impératives:\n\
 2. raw_designation : nom complet avec dosage et forme.\n\
 3. quantity : nombre de boîtes facturées (QTE).\n\
 4. batch_number : numéro de lot.\n\
-5. expiry_date : date d'expiration exacte au format YYYY-MM-DD (ex: 11/27 -> 2027-11-28).\n\
+5. expiry_date : date d'expiration au format YYYY-MM-DD. Si la facture n'indique que le mois et l'année (ex: 11/27 ou 11/2027), utiliser le premier jour du mois (ex: 2027-11-01).\n\
 6. ppa_da : Prix Public Algérien (PPA / P.Vente), toujours supérieur au prix d'achat PUHT.\n\
 7. cost_price_da : Prix Unitaire Hors Taxe (PUHT / P.U.Ht / P.Achat).\n\
 8. tva : Taux de TVA (0.0, 9.0 ou 19.0). Si exonéré ou 0, tva = 0.0.\n\
 9. mg : Marge bénéficiaire (MG / Mge / Marge). Si absente ou 0, calculer: ((ppa_da - cost_price_da * (1 + tva/100)) / (cost_price_da * (1 + tva/100))) * 100.\n\
 10. total_da = quantity * cost_price_da.\n\
-11. total_brut : Montant total brut HT des articles avant remise.\n\
-12. discount : Montant de la remise globale / ristourne, sinon 0.0.\n\
-13. grand_total : Montant Net à Payer (Total TTC ou Net HT).\n\
-14. Renvoie UNIQUEMENT le JSON valide sans texte additionnel.";
+11. total_brut : Montant total brut HT des articles avant remise (TOTAL HT / TOTAL BRUT).\n\
+12. discount : Montant de la remise globale / ristourne commerciale (REMISE / RISTOURNE), sinon 0.0.\n\
+13. total_tva : Montant total de la TVA de la facture (MONTANT TVA / TOTAL TVA), sinon 0.0.\n\
+14. timbre : Montant du droit de timbre fiscal (TIMBRE), sinon 0.0.\n\
+15. grand_total : Montant Net à Payer (NET A PAYER / TOTAL TTC / NET HT). Formule: grand_total = total_brut - discount + total_tva + timbre.\n\
+16. Renvoie UNIQUEMENT le JSON valide sans texte additionnel.";
 
     let json_text = call_gemini_api(&final_key, prompt_text, Some(&b64_pdf))?;
     let parsed: serde_json::Value = serde_json::from_str(&json_text)
@@ -2573,11 +2602,14 @@ Règles impératives:\n\
     let invoice_number = parsed.get("invoice_number").and_then(|v| v.as_str()).unwrap_or("AUTO-INV").to_string();
     let invoice_date = parsed.get("invoice_date").and_then(|v| v.as_str()).unwrap_or("").to_string();
     let total_brut = parse_f64_val(parsed.get("total_brut"));
+    let discount = parse_f64_val(parsed.get("discount"));
+    let total_tva = parse_f64_val(parsed.get("total_tva"));
+    let timbre = parse_f64_val(parsed.get("timbre"));
     let mut grand_total = parse_f64_val(parsed.get("grand_total"));
 
     let items_sum: f64 = items.iter().map(|i| i.total_da).sum();
     if grand_total == 0.0 && !items.is_empty() {
-        grand_total = (items_sum * 100.0).round() / 100.0;
+        grand_total = ((items_sum - discount + total_tva + timbre) * 100.0).round() / 100.0;
     }
 
     let pdf_data_url = format!("data:application/pdf;base64,{}", b64_pdf);
@@ -2589,7 +2621,9 @@ Règles impératives:\n\
         invoice_number: Some(invoice_number),
         invoice_date: Some(invoice_date),
         total_ht: Some((total_brut * 100.0).round() / 100.0),
-        discount: Some(0.0),
+        discount: Some((discount * 100.0).round() / 100.0),
+        total_tva: Some((total_tva * 100.0).round() / 100.0),
+        timbre: Some((timbre * 100.0).round() / 100.0),
         grand_total: Some((grand_total * 100.0).round() / 100.0),
         pages_rendered: Some(vec![pdf_data_url]),
         items: Some(items),
@@ -2878,7 +2912,7 @@ pub fn run_commit_imported_invoice_transaction(
                 Some(b) if !b.trim().is_empty() => b.trim().to_string(),
                 _ => generate_unique_6digit_barcode(tx)?,
             };
-            let items_per_pkg = item.new_drug_items_per_package.unwrap_or(10).max(1);
+            let items_per_pkg = item.new_drug_items_per_package.unwrap_or(1).max(1);
 
             tx.execute(
                 "INSERT INTO drugs (barcode, name, requires_prescription, price_per_item_da, cost_price_da, items_per_package, tva, mg)
@@ -2913,7 +2947,7 @@ pub fn run_commit_imported_invoice_transaction(
             "SELECT items_per_package FROM drugs WHERE id = ?1;",
             params![final_drug_id],
             |row| row.get(0),
-        ).unwrap_or(1);
+        ).unwrap_or(1).max(1);
 
         let total_units = item.packages_received * items_per_package;
         let batch_num = if item.batch_number.trim().is_empty() {
@@ -2926,7 +2960,7 @@ pub fn run_commit_imported_invoice_transaction(
             // Default 2 years ahead if unspecified
             (chrono::Local::now() + chrono::Duration::days(730)).format("%Y-%m-%d").to_string()
         } else {
-            item.expiry_date.trim().to_string()
+            normalize_expiry_date(&item.expiry_date)
         };
 
         // Insert stock batch with batch-specific pricing and invoice link

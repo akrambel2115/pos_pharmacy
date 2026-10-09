@@ -65,7 +65,7 @@ def parse_expiry(text: Optional[str]) -> str:
             year = int(y_part)
         month = int(m_part)
         if 1 <= month <= 12 and 2024 <= year <= 2045:
-            return f"{year:04d}-{month:02d}-28"
+            return f"{year:04d}-{month:02d}-01"
     return ""
 
 
@@ -218,6 +218,8 @@ def extract_invoice(file_path: str, output_dir: Optional[str] = None) -> Dict[st
         is_invoice_tva_zero = False
         detected_discount = 0.0
         detected_total_ht = 0.0
+        detected_tva = 0.0
+        detected_timbre = 0.0
         for b in boxes:
             txt = b["text"].upper()
             if "TVA" in txt and any(z in txt for z in ["0.00", "0,00", ":0"]):
@@ -235,6 +237,14 @@ def extract_invoice(file_path: str, output_dir: Optional[str] = None) -> Dict[st
                     val = clean_num(b["text"])
                     if val and val > 0:
                         detected_discount = max(detected_discount, val)
+                elif "TIMBRE" in txt:
+                    val = clean_num(b["text"])
+                    if val is not None and val >= 0:
+                        detected_timbre = val
+                elif "TVA" in txt and not any(k in txt for k in ["TAUX", "%"]):
+                    val = clean_num(b["text"])
+                    if val and val > 0:
+                        detected_tva = val
 
         # 6. Table Rows Extraction
         table_boxes = [b for b in boxes if header_y_max + 8 <= b["cy"] < footer_y_min - 8]
@@ -389,6 +399,8 @@ def extract_invoice(file_path: str, output_dir: Optional[str] = None) -> Dict[st
         "invoice_date": invoice_date or "",
         "total_ht": round(detected_total_ht, 2),
         "discount": round(detected_discount, 2),
+        "total_tva": round(detected_tva, 2),
+        "timbre": round(detected_timbre, 2),
         "grand_total": round(detected_grand_total, 2),
         "pages_rendered": rendered_pages,
         "items": all_extracted_items,
@@ -465,6 +477,8 @@ def extract_invoice_gemini(file_path: str, api_key: str, output_dir: Optional[st
         '  "invoice_date": "YYYY-MM-DD",\n'
         '  "total_brut": 0.0,\n'
         '  "discount": 0.0,\n'
+        '  "total_tva": 0.0,\n'
+        '  "timbre": 0.0,\n'
         '  "grand_total": 0.0,\n'
         '  "items": [\n'
         "    {\n"
@@ -485,16 +499,18 @@ def extract_invoice_gemini(file_path: str, api_key: str, output_dir: Optional[st
         "2. raw_designation : nom complet avec dosage et forme.\n"
         "3. quantity : nombre d'unités ou boîtes facturées (QTE).\n"
         "4. batch_number : numéro de lot (NoLot / Lot).\n"
-        "5. expiry_date : date d'expiration exacte au format YYYY-MM-DD (ex: 11/27 ou 11/2027 -> 2027-11-28). Ne pas confondre avec le lot.\n"
+        "5. expiry_date : date d'expiration exacte au format YYYY-MM-DD. Si la facture n'indique que le mois et l'année (ex: 11/27 ou 11/2027), utiliser le premier jour du mois (ex: 2027-11-01). Ne pas confondre avec le lot.\n"
         "6. ppa_da : Prix Public Algérien (PPA / P.Vente), toujours supérieur au prix d'achat PUHT.\n"
         "7. cost_price_da : Prix Unitaire Hors Taxe (PUHT / P.U.Ht / P.Achat).\n"
         "8. tva : Taux de TVA (généralement 0.0, 9.0 ou 19.0). Si la facture indique TVA 0.00 ou exonéré dans le total, tva = 0.0. Ne pas mettre 9.0 par défaut si la facture est à 0%.\n"
         "9. mg : Marge bénéficiaire (MG / Mge / Marge, ex: 20.0, 25.0, 33.0). Ne pas confondre la marge avec la TVA. Si la colonne MG est absente ou 0, calculer la marge : ((ppa_da - cost_price_da * (1 + tva/100)) / (cost_price_da * (1 + tva/100))) * 100.\n"
         "10. total_da = quantity * cost_price_da.\n"
-        "11. total_brut : Montant total brut HT des articles avant remise/ristourne.\n"
+        "11. total_brut : Montant total brut HT des articles avant remise/ristourne (TOTAL HT / TOTAL BRUT).\n"
         "12. discount : Montant de la remise globale ou ristourne commerciale au bas de la facture (RISTOURNE / REMISE / RIST), sinon 0.0.\n"
-        "13. grand_total : Montant Net à Payer (Total TTC ou Net HT après déduction de la ristourne). Égal à total_brut - discount.\n"
-        "14. Renvoie UNIQUEMENT le JSON valide sans texte additionnel."
+        "13. total_tva : Montant total de la TVA de la facture (MONTANT TVA / TOTAL TVA), sinon 0.0.\n"
+        "14. timbre : Montant du droit de timbre fiscal (TIMBRE), sinon 0.0.\n"
+        "15. grand_total : Montant Net à Payer (NET A PAYER / TOTAL TTC / NET HT après déduction de la ristourne). Formule: total_brut - discount + total_tva + timbre.\n"
+        "16. Renvoie UNIQUEMENT le JSON valide sans texte additionnel."
     )
 
     request_payload = {
@@ -516,10 +532,11 @@ def extract_invoice_gemini(file_path: str, api_key: str, output_dir: Optional[st
     
     # Try available Flash models in order of speed, capability and stability
     models = [
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-lite-latest",
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
         "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-2.5-pro",
         "gemini-2.5-flash",
     ]
     last_error = ""
@@ -621,15 +638,14 @@ def extract_invoice_gemini(file_path: str, api_key: str, output_dir: Optional[st
                     })
 
                 total_brut = clean_num(str(parsed_result.get("total_brut", 0))) or 0.0
+                discount = clean_num(str(parsed_result.get("discount", 0))) or 0.0
+                total_tva = clean_num(str(parsed_result.get("total_tva", 0))) or 0.0
+                timbre = clean_num(str(parsed_result.get("timbre", 0))) or 0.0
                 grand_total = clean_num(str(parsed_result.get("grand_total", 0))) or 0.0
                 items_sum = round(sum(i["total_da"] for i in clean_items), 2)
 
-                if total_brut > 0 and abs(items_sum - total_brut) <= 1.0:
-                    grand_total = total_brut
-                elif grand_total == 0.0 and clean_items:
-                    grand_total = items_sum
-                elif total_brut > 0 and abs(items_sum - grand_total) > 1.0 and abs(items_sum - total_brut) <= 5.0:
-                    grand_total = total_brut
+                if grand_total == 0.0 and clean_items:
+                    grand_total = round(items_sum - discount + total_tva + timbre, 2)
 
                 return {
                     "success": True,
@@ -637,7 +653,9 @@ def extract_invoice_gemini(file_path: str, api_key: str, output_dir: Optional[st
                     "invoice_number": parsed_result.get("invoice_number") or "AUTO-INV",
                     "invoice_date": parsed_result.get("invoice_date") or "",
                     "total_ht": round(total_brut, 2),
-                    "discount": 0.0,
+                    "discount": round(discount, 2),
+                    "total_tva": round(total_tva, 2),
+                    "timbre": round(timbre, 2),
                     "grand_total": round(grand_total, 2),
                     "pages_rendered": rendered_pages,
                     "items": clean_items,
@@ -686,10 +704,11 @@ def test_gemini_key(api_key: str) -> Dict[str, Any]:
         return {"success": False, "error": "Veuillez saisir une clé API."}
 
     test_models = [
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-lite-latest",
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
         "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-2.5-pro",
         "gemini-2.5-flash",
     ]
     last_err = ""
@@ -782,10 +801,11 @@ def ai_match_medicines(items_to_match: list, api_key: str) -> Dict[str, Any]:
     req_data = json.dumps(request_payload).encode("utf-8")
 
     models = [
-        "gemini-3.5-flash-lite",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-lite-latest",
+        "gemini-3.8-flash",
+        "gemini-3.7-flash",
         "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-2.5-pro",
         "gemini-2.5-flash",
     ]
     last_error = ""
