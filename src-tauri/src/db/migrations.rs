@@ -296,5 +296,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
         [],
     );
 
+    // Migration: Fix drugs where items_per_package was erroneously defaulted to 10 from invoice import
+    let _ = conn.execute("UPDATE drugs SET items_per_package = 1 WHERE items_per_package = 10;", []);
+    // Migration: Fix existing stock batches where items_remaining was erroneously multiplied by 10
+    let _ = conn.execute("UPDATE stock_batches SET items_remaining = packages_received WHERE items_remaining = packages_received * 10;", []);
+
     Ok(())
 }
