@@ -26,7 +26,11 @@
   let supplierName = $state("");
   let invoiceNumber = $state("");
   let invoiceDate = $state("");
+  let detectedTotalHt = $state(0);
   let detectedGrandTotal = $state(0);
+  let invoiceDiscount = $state(0);
+  let invoiceTva = $state(0);
+  let invoiceTimbre = $state(0);
   let renderedPages = $state<string[]>([]);
   let currentPreviewPageIndex = $state(0);
   let previewZoom = $state(1.0);
@@ -84,6 +88,77 @@
   let aiHighlightedCells = $state<Set<string>>(new Set());
   let highlightTimer: any = null;
 
+  function normalizeExpDateStr(raw: string): string {
+    const s = (raw || "").trim();
+    if (!s) return "";
+    const parts = s.split(/[\/\-\.]/);
+    if (parts.length === 2) {
+      const p1 = parseInt(parts[0], 10);
+      const p2 = parseInt(parts[1], 10);
+      if (!isNaN(p1) && !isNaN(p2)) {
+        if (p1 >= 1 && p1 <= 12) {
+          const fullYear = p2 < 100 ? 2000 + p2 : p2;
+          return `${fullYear}-${String(p1).padStart(2, "0")}-01`;
+        }
+        const fullYear = p1 < 100 ? 2000 + p1 : p1;
+        if (p2 >= 1 && p2 <= 12) {
+          return `${fullYear}-${String(p2).padStart(2, "0")}-01`;
+        }
+      }
+    } else if (parts.length === 3) {
+      const p1 = parseInt(parts[0], 10);
+      const p2 = parseInt(parts[1], 10);
+      const p3 = parseInt(parts[2], 10);
+      if (!isNaN(p1) && !isNaN(p2) && !isNaN(p3)) {
+        if (p1 >= 2000) {
+          return `${p1}-${String(p2).padStart(2, "0")}-${String(p3).padStart(2, "0")}`;
+        }
+        const fullYear = p3 < 100 ? 2000 + p3 : p3;
+        return `${fullYear}-${String(p2).padStart(2, "0")}-${String(p1).padStart(2, "0")}`;
+      }
+    }
+    return s;
+  }
+
+  async function renderPdfDataUrlToImages(pdfDataUrl: string): Promise<string[]> {
+    if (typeof window === "undefined") return [pdfDataUrl];
+    try {
+      const pdfjs = await import("pdfjs-dist");
+      const workerUrl = (await import("pdfjs-dist/build/pdf.worker.min.mjs?url")).default;
+      pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
+
+      const base64Data = pdfDataUrl.replace(/^data:application\/pdf;base64,/, "");
+      const binaryString = window.atob(base64Data);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const loadingTask = pdfjs.getDocument({ data: bytes });
+      const pdf = await loadingTask.promise;
+      const images: string[] = [];
+
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 2.0 });
+        const canvas = document.createElement("canvas");
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          await page.render({ canvasContext: ctx, viewport }).promise;
+          images.push(canvas.toDataURL("image/png"));
+        }
+      }
+
+      return images.length > 0 ? images : [pdfDataUrl];
+    } catch (e) {
+      console.warn("Failed to render PDF using PDF.js:", e);
+      return [pdfDataUrl];
+    }
+  }
+
   // Extracted and validated items
   interface ValidatedItemRow {
     raw_designation: string;
@@ -114,13 +189,37 @@
     return Math.round((val || 0) * 100) / 100;
   }
 
+  let customTotalHt = $state<number | null>(null);
+  let customNetCalculated = $state<number | null>(null);
+
   // Computed totals & math reconciliation
-  let calculatedGrandTotal = $derived(
+  let linesTotalHt = $derived(
     round(items.reduce((sum, item) => sum + (item.quantity_packages * item.cost_price_da), 0))
   );
 
+  let effectiveTotalHt = $derived(
+    customTotalHt !== null ? customTotalHt : linesTotalHt
+  );
+
+  let calculatedTotalHt = $derived(effectiveTotalHt);
+
+  let linesTvaSum = $derived(
+    round(items.reduce((sum, item) => sum + (item.quantity_packages * item.cost_price_da * ((item.tva || 0) / 100)), 0))
+  );
+
+  let autoNetCalculated = $derived(
+    round(effectiveTotalHt - (Number(invoiceDiscount) || 0) + (Number(invoiceTva) || 0) + (Number(invoiceTimbre) || 0))
+  );
+
+  let effectiveNetCalculated = $derived(
+    customNetCalculated !== null ? customNetCalculated : autoNetCalculated
+  );
+
+  let calculatedNet = $derived(effectiveNetCalculated);
+  let calculatedGrandTotal = $derived(effectiveNetCalculated);
+
   let totalsDiff = $derived(
-    round(Math.abs(calculatedGrandTotal - (detectedGrandTotal || 0)))
+    round(Math.abs(effectiveNetCalculated - (Number(detectedGrandTotal) || 0)))
   );
 
   let hasCriticalErrors = $derived(
@@ -267,8 +366,19 @@
       supplierName = rawPayload.supplier || "Grossiste";
       invoiceNumber = rawPayload.invoice_number || "";
       invoiceDate = rawPayload.invoice_date || "";
+      detectedTotalHt = rawPayload.total_ht || 0;
       detectedGrandTotal = rawPayload.grand_total || 0;
-      renderedPages = rawPayload.pages_rendered || [];
+      invoiceDiscount = rawPayload.discount || 0;
+      invoiceTimbre = rawPayload.timbre || 0;
+      customTotalHt = null;
+      customNetCalculated = null;
+      
+      const rawPages = rawPayload.pages_rendered || [];
+      if (rawPages.length > 0 && rawPages[0].startsWith("data:application/pdf")) {
+        renderedPages = await renderPdfDataUrlToImages(rawPages[0]);
+      } else {
+        renderedPages = rawPages;
+      }
       currentPreviewPageIndex = 0;
 
       // 2. Catalog Matching & Math Validation
@@ -283,10 +393,10 @@
         is_new_drug: r.is_new_drug,
         new_drug_name: r.raw_designation,
         new_drug_barcode: "",
-        new_drug_items_per_package: 10,
+        new_drug_items_per_package: 1,
         save_alias: !r.is_new_drug,
         batch_number: r.batch_number || "LOT-AUTO",
-        expiry_date: r.expiry_date || "",
+        expiry_date: normalizeExpDateStr(r.expiry_date || ""),
         quantity_packages: r.quantity_packages || 1,
         cost_price_da: r.cost_price_da || 0,
         ppa_da: r.ppa_da || (r.cost_price_da ? round(r.cost_price_da * 1.25) : 0),
@@ -299,6 +409,13 @@
         validation_messages: r.validation_messages || [],
         all_candidates: r.all_candidates || [],
       }));
+
+      if (rawPayload.total_tva && rawPayload.total_tva > 0) {
+        invoiceTva = rawPayload.total_tva;
+      } else {
+        const lineTva = round(items.reduce((sum, item) => sum + (item.quantity_packages * item.cost_price_da * ((item.tva || 0) / 100)), 0));
+        invoiceTva = lineTva;
+      }
 
       // Background AI decision on new vs existing medicine if API key is present
       invoke<string>("get_gemini_api_key").then(savedKey => {
@@ -433,9 +550,22 @@
       supplierName = rawPayload.supplier || supplierName || "Grossiste";
       invoiceNumber = rawPayload.invoice_number || invoiceNumber || "";
       invoiceDate = rawPayload.invoice_date || invoiceDate || "";
+      detectedTotalHt = rawPayload.total_ht || detectedTotalHt || 0;
       detectedGrandTotal = rawPayload.grand_total || detectedGrandTotal || 0;
+      if (rawPayload.discount !== undefined && rawPayload.discount !== null) {
+        invoiceDiscount = rawPayload.discount;
+      }
+      if (rawPayload.timbre !== undefined && rawPayload.timbre !== null) {
+        invoiceTimbre = rawPayload.timbre;
+      }
+      customTotalHt = null;
+      customNetCalculated = null;
       if (rawPayload.pages_rendered && rawPayload.pages_rendered.length > 0) {
-        renderedPages = rawPayload.pages_rendered;
+        if (rawPayload.pages_rendered[0].startsWith("data:application/pdf")) {
+          renderedPages = await renderPdfDataUrlToImages(rawPayload.pages_rendered[0]);
+        } else {
+          renderedPages = rawPayload.pages_rendered;
+        }
       }
 
       // Re-run matching against local pharmacy inventory
@@ -449,10 +579,10 @@
         is_new_drug: r.is_new_drug,
         new_drug_name: r.raw_designation,
         new_drug_barcode: "",
-        new_drug_items_per_package: 10,
+        new_drug_items_per_package: 1,
         save_alias: !r.is_new_drug,
         batch_number: r.batch_number || "LOT-AUTO",
-        expiry_date: r.expiry_date || "",
+        expiry_date: normalizeExpDateStr(r.expiry_date || ""),
         quantity_packages: r.quantity_packages || 1,
         cost_price_da: r.cost_price_da || 0,
         ppa_da: r.ppa_da || (r.cost_price_da ? round(r.cost_price_da * 1.25) : 0),
@@ -465,6 +595,13 @@
         validation_messages: r.validation_messages || [],
         all_candidates: r.all_candidates || [],
       }));
+
+      if (rawPayload.total_tva && rawPayload.total_tva > 0) {
+        invoiceTva = rawPayload.total_tva;
+      } else {
+        const lineTva = round(newItems.reduce((sum, item) => sum + (item.quantity_packages * item.cost_price_da * ((item.tva || 0) / 100)), 0));
+        invoiceTva = lineTva;
+      }
 
       // Detect which cells changed between previous and new values
       const changed = new Set<string>();
@@ -618,7 +755,7 @@
         is_new_drug: true,
         new_drug_name: "",
         new_drug_barcode: "",
-        new_drug_items_per_package: 10,
+        new_drug_items_per_package: 1,
         save_alias: false,
         batch_number: "LOT-AUTO",
         expiry_date: "",
@@ -656,10 +793,10 @@
           create_new_drug: i.is_new_drug,
           new_drug_name: i.is_new_drug ? (i.new_drug_name.trim() || i.raw_designation.trim()) : null,
           new_drug_barcode: i.is_new_drug && i.new_drug_barcode.trim() ? i.new_drug_barcode.trim() : null,
-          new_drug_items_per_package: i.is_new_drug ? i.new_drug_items_per_package : null,
+          new_drug_items_per_package: i.is_new_drug ? 1 : null,
           alias_to_save: i.save_alias ? i.raw_designation.trim() : null,
           batch_number: i.batch_number.trim() || "LOT-AUTO",
-          expiry_date: i.expiry_date.trim(),
+          expiry_date: normalizeExpDateStr(i.expiry_date),
           packages_received: i.quantity_packages,
           cost_price_da: i.cost_price_da,
           ppa_da: i.ppa_da,
@@ -765,17 +902,17 @@
           <div class="preview-controls">
             <span>Page {currentPreviewPageIndex + 1} / {renderedPages.length || 1}</span>
             <div class="zoom-buttons">
-              <button onclick={() => previewZoom = Math.max(0.6, Math.round((previewZoom - 0.2) * 10) / 10)} title="Zoom arrière">-</button>
-              <button class="zoom-level-btn" onclick={resetPreviewTransform} title="Réinitialiser zoom et position">{Math.round(previewZoom * 100)}%</button>
-              <button onclick={() => previewZoom = Math.min(3.0, Math.round((previewZoom + 0.2) * 10) / 10)} title="Zoom avant">+</button>
+              <button type="button" onclick={() => previewZoom = Math.max(0.6, Math.round((previewZoom - 0.2) * 10) / 10)} title="Zoom arrière">-</button>
+              <button type="button" class="zoom-level-btn" onclick={resetPreviewTransform} title="Réinitialiser zoom et position">{Math.round(previewZoom * 100)}%</button>
+              <button type="button" onclick={() => previewZoom = Math.min(3.0, Math.round((previewZoom + 0.2) * 10) / 10)} title="Zoom avant">+</button>
               {#if previewZoom !== 1.0 || previewPanX !== 0 || previewPanY !== 0}
-                <button class="btn-reset-preview" onclick={resetPreviewTransform} title="Recentrer la vue">⟲</button>
+                <button type="button" class="btn-reset-preview" onclick={resetPreviewTransform} title="Recentrer la vue">⟲</button>
               {/if}
             </div>
             {#if renderedPages.length > 1}
               <div class="page-nav-buttons">
-                <button disabled={currentPreviewPageIndex === 0} onclick={() => { currentPreviewPageIndex--; resetPreviewTransform(); }}>◀</button>
-                <button disabled={currentPreviewPageIndex >= renderedPages.length - 1} onclick={() => { currentPreviewPageIndex++; resetPreviewTransform(); }}>▶</button>
+                <button type="button" disabled={currentPreviewPageIndex === 0} onclick={() => { currentPreviewPageIndex--; resetPreviewTransform(); }}>◀</button>
+                <button type="button" disabled={currentPreviewPageIndex >= renderedPages.length - 1} onclick={() => { currentPreviewPageIndex++; resetPreviewTransform(); }}>▶</button>
               </div>
             {/if}
           </div>
@@ -790,21 +927,25 @@
             aria-label="Aperçu PDF déplaçable"
           >
             {#if renderedPages.length > 0}
-              {#if renderedPages[currentPreviewPageIndex]?.startsWith('data:application/pdf')}
-                <iframe 
-                  src={renderedPages[currentPreviewPageIndex]} 
-                  title="Aperçu Facture PDF"
-                  style="width: 100%; height: 100%; border: none; min-height: 550px; background: #fff;"
-                ></iframe>
-              {:else}
-                <img 
-                  src={renderedPages[currentPreviewPageIndex]} 
-                  alt="Page de Facture" 
-                  style="transform: translate({previewPanX}px, {previewPanY}px) scale({previewZoom}); transform-origin: top center;"
-                  class="scanned-image"
-                  draggable="false"
-                />
-              {/if}
+              <div 
+                class="preview-canvas-wrapper"
+                style="transform: translate({previewPanX}px, {previewPanY}px) scale({previewZoom}); transform-origin: top center;"
+              >
+                {#if renderedPages[currentPreviewPageIndex]?.startsWith('data:application/pdf')}
+                  <iframe 
+                    src={renderedPages[currentPreviewPageIndex]} 
+                    title="Aperçu Facture PDF"
+                    class="scanned-iframe"
+                  ></iframe>
+                {:else}
+                  <img 
+                    src={renderedPages[currentPreviewPageIndex]} 
+                    alt="Page de Facture" 
+                    class="scanned-image"
+                    draggable="false"
+                  />
+                {/if}
+              </div>
             {:else}
               <p class="no-preview">Aucun aperçu disponible</p>
             {/if}
@@ -854,9 +995,155 @@
           <!-- Financial Math Summary Banner -->
           <div class="financial-summary {totalsDiff <= 1.0 ? 'summary-ok' : 'summary-diff'}">
             <div class="summary-details">
-              <div><strong>{t("invoiceGrandTotal")} (Détecté):</strong> {detectedGrandTotal.toFixed(2)} DA</div>
-              <div><strong>{t("calculatedTotal")}:</strong> {calculatedGrandTotal.toFixed(2)} DA</div>
-              <div><strong>{t("difference")}:</strong> {totalsDiff.toFixed(2)} DA</div>
+              <div class="summary-item summary-editable" title="Total Net détecté / extrait de la facture">
+                <label for="inv-summary-net-detect" class="summary-label">Net Détecté:</label>
+                <div class="input-with-unit">
+                  <input 
+                    id="inv-summary-net-detect"
+                    type="number" 
+                    step="0.01" 
+                    min="0" 
+                    class="summary-input font-mono" 
+                    bind:value={detectedGrandTotal} 
+                  />
+                  <span class="unit-text">DA</span>
+                </div>
+              </div>
+
+              <span class="summary-sep">|</span>
+
+              <div class="summary-item summary-editable" title="Total HT (somme des lignes: {linesTotalHt.toFixed(2)} DA)">
+                <label for="inv-summary-total-ht" class="summary-label">Total HT:</label>
+                <div class="input-with-unit">
+                  <input 
+                    id="inv-summary-total-ht"
+                    type="number" 
+                    step="0.01" 
+                    min="0" 
+                    class="summary-input font-mono" 
+                    value={effectiveTotalHt}
+                    oninput={(e) => {
+                      const v = parseFloat((e.target as HTMLInputElement).value);
+                      customTotalHt = isNaN(v) ? 0 : v;
+                    }}
+                  />
+                  <span class="unit-text">DA</span>
+                  {#if customTotalHt !== null && Math.abs(customTotalHt - linesTotalHt) > 0.05}
+                    <button 
+                      type="button" 
+                      class="btn-sync-tva" 
+                      onclick={() => customTotalHt = null}
+                      title="Reprendre la somme exacte des lignes ({linesTotalHt.toFixed(2)} DA)"
+                    >
+                      ↺ {linesTotalHt.toFixed(2)}
+                    </button>
+                  {/if}
+                </div>
+              </div>
+
+              <span class="summary-math-op">−</span>
+
+              <div class="summary-item summary-editable" title="Remise commerciale ou ristourne">
+                <label for="inv-summary-remise" class="summary-label">Remise:</label>
+                <div class="input-with-unit">
+                  <input 
+                    id="inv-summary-remise"
+                    type="number" 
+                    step="0.01" 
+                    min="0" 
+                    class="summary-input font-mono" 
+                    bind:value={invoiceDiscount} 
+                  />
+                  <span class="unit-text">DA</span>
+                </div>
+              </div>
+
+              <span class="summary-math-op">+</span>
+
+              <div class="summary-item summary-editable" title="Montant global TVA (somme des lignes: {linesTvaSum.toFixed(2)} DA)">
+                <label for="inv-summary-tva" class="summary-label">TVA:</label>
+                <div class="input-with-unit">
+                  <input 
+                    id="inv-summary-tva"
+                    type="number" 
+                    step="0.01" 
+                    min="0" 
+                    class="summary-input font-mono" 
+                    bind:value={invoiceTva} 
+                  />
+                  <span class="unit-text">DA</span>
+                  {#if linesTvaSum > 0 && Math.abs(invoiceTva - linesTvaSum) > 0.05}
+                    <button 
+                      type="button" 
+                      class="btn-sync-tva" 
+                      onclick={() => invoiceTva = linesTvaSum}
+                      title="Utiliser la somme TVA des lignes ({linesTvaSum.toFixed(2)} DA)"
+                    >
+                      ↺ {linesTvaSum.toFixed(2)}
+                    </button>
+                  {/if}
+                </div>
+              </div>
+
+              <span class="summary-math-op">+</span>
+
+              <div class="summary-item summary-editable" title="Droit de timbre fiscal">
+                <label for="inv-summary-timbre" class="summary-label">Timbre:</label>
+                <div class="input-with-unit">
+                  <input 
+                    id="inv-summary-timbre"
+                    type="number" 
+                    step="0.01" 
+                    min="0" 
+                    class="summary-input font-mono" 
+                    bind:value={invoiceTimbre} 
+                  />
+                  <span class="unit-text">DA</span>
+                </div>
+              </div>
+
+              <span class="summary-math-op">=</span>
+
+              <div class="summary-item summary-editable summary-highlight" title="Net Calculé (formule: {autoNetCalculated.toFixed(2)} DA)">
+                <label for="inv-summary-net-calc" class="summary-label">Net Calculé:</label>
+                <div class="input-with-unit">
+                  <input 
+                    id="inv-summary-net-calc"
+                    type="number" 
+                    step="0.01" 
+                    min="0" 
+                    class="summary-input font-mono bold" 
+                    value={effectiveNetCalculated}
+                    oninput={(e) => {
+                      const v = parseFloat((e.target as HTMLInputElement).value);
+                      customNetCalculated = isNaN(v) ? 0 : v;
+                    }}
+                  />
+                  <span class="unit-text">DA</span>
+                  {#if customNetCalculated !== null && Math.abs(customNetCalculated - autoNetCalculated) > 0.05}
+                    <button 
+                      type="button" 
+                      class="btn-sync-tva" 
+                      onclick={() => customNetCalculated = null}
+                      title="Reprendre le calcul automatique ({autoNetCalculated.toFixed(2)} DA)"
+                    >
+                      ↺ {autoNetCalculated.toFixed(2)}
+                    </button>
+                  {/if}
+                </div>
+              </div>
+
+              <span class="summary-sep">|</span>
+
+              <div class="summary-item summary-diff-item {totalsDiff <= 1.0 ? 'diff-ok' : 'diff-warn'}">
+                <span class="summary-label">Écart:</span>
+                <span class="summary-val font-mono bold">{totalsDiff.toFixed(2)} DA</span>
+                {#if totalsDiff <= 1.0}
+                  <span class="pill-badge-ok">✓ Conforme</span>
+                {:else}
+                  <span class="pill-badge-warn">⚠ Différence</span>
+                {/if}
+              </div>
             </div>
           </div>
 
@@ -972,7 +1259,10 @@
                         class="cell-input {item.expiry_date ? '' : 'cell-warn'}" 
                         class:cell-ai-highlighted={aiHighlightedCells.has(`${idx}-exp`)}
                         bind:value={item.expiry_date} 
-                        onchange={() => recalculateRow(idx)}
+                        onchange={() => {
+                          item.expiry_date = normalizeExpDateStr(item.expiry_date);
+                          recalculateRow(idx);
+                        }}
                         placeholder="YYYY-MM-DD"
                       />
                     </td>
@@ -1273,7 +1563,7 @@
   }
 
   .preview-panel {
-    flex: 0 0 clamp(180px, 22vw, 320px);
+    flex: 0 0 clamp(340px, 34vw, 580px);
     display: flex;
     flex-direction: column;
     background: #2d3748;
@@ -1346,6 +1636,17 @@
     cursor: grabbing;
   }
 
+  .preview-canvas-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    width: 100%;
+    min-height: 100%;
+    will-change: transform;
+    transition: transform 0.05s ease-out;
+    pointer-events: none;
+  }
+
   .scanned-image {
     max-width: 100%;
     height: auto;
@@ -1355,8 +1656,17 @@
     border-radius: 4px;
     pointer-events: none;
     user-select: none;
-    will-change: transform;
-    transition: transform 0.05s ease-out;
+  }
+
+  .scanned-iframe {
+    width: 100%;
+    height: 100%;
+    min-height: 550px;
+    border: none;
+    background: #fff;
+    border-radius: 4px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+    pointer-events: none;
   }
 
   .review-panel {
@@ -1407,33 +1717,164 @@
     display: flex;
     align-items: center;
     padding: clamp(0.35rem, 0.6vh, 0.55rem) clamp(0.5rem, 1vw, 0.85rem);
-    border-radius: 6px;
-    font-size: clamp(0.82rem, 0.9vw, 0.95rem);
+    border-radius: 8px;
+    font-size: clamp(0.82rem, 0.88vw, 0.92rem);
     margin-bottom: clamp(0.4rem, 0.8vh, 0.65rem);
     overflow-x: auto;
     flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .summary-details {
     display: flex;
-    justify-content: space-around;
+    justify-content: flex-start;
     width: 100%;
     align-items: center;
     flex-wrap: wrap;
-    gap: clamp(0.5rem, 1vw, 1.25rem);
-    font-size: clamp(0.82rem, 0.88vw, 0.95rem);
+    row-gap: 0.45rem;
+    column-gap: clamp(0.35rem, 0.6vw, 0.65rem);
+    font-size: clamp(0.82rem, 0.88vw, 0.92rem);
   }
 
   .summary-ok {
-    background: #e3fcef;
-    border: 1px solid var(--color-primary);
-    color: var(--color-primary-hover);
+    background: #e6f9ed;
+    border: 1.5px solid #00875a;
+    color: #0b4a2d;
   }
 
   .summary-diff {
-    background: #fff0b3;
-    border: 1px solid #ffab00;
-    color: #8f4d00;
+    background: #fff8e6;
+    border: 1.5px solid #ffab00;
+    color: #7a4100;
+  }
+
+  .summary-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    white-space: nowrap;
+  }
+
+  .summary-label {
+    font-weight: 600;
+    opacity: 0.9;
+  }
+
+  .summary-val {
+    font-weight: 700;
+  }
+
+  .summary-highlight {
+    background: rgba(255, 255, 255, 0.7);
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.08);
+  }
+
+  .summary-editable {
+    background: rgba(255, 255, 255, 0.75);
+    padding: 2px 6px;
+    border-radius: 6px;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+  }
+
+  .summary-math-op {
+    font-weight: 800;
+    font-size: 1.1rem;
+    opacity: 0.55;
+    user-select: none;
+    line-height: 1;
+  }
+
+  .summary-sep {
+    font-weight: 300;
+    font-size: 1rem;
+    opacity: 0.35;
+    user-select: none;
+    margin: 0 2px;
+  }
+
+  .input-with-unit {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .summary-input {
+    width: 96px;
+    padding: 2px 5px;
+    border: 1.5px solid #cbd5e1;
+    border-radius: 5px;
+    font-size: 0.83rem;
+    font-weight: 700;
+    text-align: right;
+    background: #ffffff;
+    color: #1e293b;
+    transition: all 0.15s ease;
+  }
+
+  .summary-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 2px rgba(10, 147, 150, 0.25);
+  }
+
+  .unit-text {
+    font-size: 0.75rem;
+    font-weight: 700;
+    opacity: 0.75;
+  }
+
+  .btn-sync-tva {
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #7dd3fc;
+    border-radius: 4px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 1px 5px;
+    cursor: pointer;
+    line-height: 1.3;
+    transition: all 0.15s ease;
+  }
+
+  .btn-sync-tva:hover {
+    background: #bae6fd;
+    color: #0284c7;
+  }
+
+  .summary-diff-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 2px 8px;
+    border-radius: 6px;
+  }
+
+  .summary-diff-item.diff-ok {
+    background: rgba(0, 135, 90, 0.12);
+  }
+
+  .summary-diff-item.diff-warn {
+    background: rgba(222, 53, 11, 0.12);
+  }
+
+  .pill-badge-ok {
+    background: #00875a;
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 12px;
+  }
+
+  .pill-badge-warn {
+    background: #de350b;
+    color: #ffffff;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 1px 7px;
+    border-radius: 12px;
   }
 
   .table-wrapper {
@@ -1836,7 +2277,7 @@
     }
 
     .preview-panel {
-      flex: 0 0 clamp(160px, 20vw, 240px);
+      flex: 0 0 clamp(280px, 30vw, 420px);
     }
   }
 
@@ -1846,7 +2287,7 @@
     }
 
     .preview-panel {
-      flex: 0 0 180px;
+      flex: 0 0 300px;
       max-width: 100%;
     }
 
@@ -1900,7 +2341,7 @@
 
   @media (max-height: 600px) {
     .preview-panel {
-      flex: 0 0 140px;
+      flex: 0 0 220px;
     }
   }
 </style>
